@@ -24,15 +24,21 @@ use super::text::{Text, TextLayout};
 use super::{DisplayBuilder, Error, ResultExt};
 
 use piet::kurbo::{Affine, PathEl, Point, Rect, Shape, Size};
-use piet::{FixedGradient, ImageFormat, InterpolationMode, IntoBrush, StrokeStyle};
+use piet::{
+    FixedGradient, FixedLinearGradient, FixedRadialGradient, ImageFormat, InterpolationMode,
+    IntoBrush, LineCap, LineJoin, StrokeStyle,
+};
+
+use cosmic_text::{CacheKey, Font};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use softbuffer::{Context, Surface as SoftbufferSurface};
-use tiny_skia::{ClipMask, Paint, PathBuilder, PixmapMut, Shader};
+use tiny_skia::{ClipMask, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader};
 use tinyvec::TinyVec;
 
 use std::borrow::Cow;
-use std::f32::consts::PI;
+use std::collections::hash_map::{Entry, HashMap};
 use std::marker::PhantomData;
+use std::mem;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
@@ -46,6 +52,9 @@ pub(super) struct Display {
 
     /// A cached path builder.
     path_builder: PathBuilder,
+
+    /// Map between cache keys and cached glyphs.
+    glyph_cache: HashMap<CacheKey, Pixmap>,
 }
 
 /// The surface for the software rasterizer.
@@ -76,6 +85,9 @@ pub(super) struct RenderContext<'dsp, 'surf> {
 
     /// The tolerance for curves.
     tolerance: f64,
+
+    /// Whether we currently need to update the render state.
+    dirty: bool,
 }
 
 struct RenderState {
@@ -100,7 +112,53 @@ impl Default for RenderState {
 pub(super) enum Brush {
     /// A solid color brush.
     Solid(piet::Color),
-    // TODO: Other variants
+
+    /// A fixed linear gradient brush.
+    ///
+    /// TODO: Cache the gradient.
+    LinearGradient(FixedLinearGradient),
+
+    /// A fixed radial gradient brush.
+    ///
+    /// TODO: Cache the gradient.
+    RadialGradient(FixedRadialGradient),
+}
+
+impl Brush {
+    fn to_shader(&self) -> Result<Shader<'_>, Error> {
+        match self {
+            Brush::Solid(color) => Ok(Shader::SolidColor(convert_color(*color))),
+            Brush::LinearGradient(linear) => {
+                let start = convert_point(linear.start);
+                let end = convert_point(linear.end);
+                let stops = linear.stops.iter().map(convert_gradient_stop).collect();
+
+                tiny_skia::LinearGradient::new(
+                    start,
+                    end,
+                    stops,
+                    tiny_skia::SpreadMode::Pad,
+                    tiny_skia::Transform::identity(),
+                )
+                .ok_or_else(|| Error::BackendError("failed to create linear gradient".into()))
+            }
+            Brush::RadialGradient(radial) => {
+                let start = convert_point(radial.center);
+                let end = convert_point(radial.center + radial.origin_offset);
+                let stops = radial.stops.iter().map(convert_gradient_stop).collect();
+
+                tiny_skia::RadialGradient::new(
+                    start,
+                    end,
+                    radial.radius as _,
+                    stops,
+                    tiny_skia::SpreadMode::Pad,
+                    tiny_skia::Transform::identity(),
+                )
+                .ok_or_else(|| Error::BackendError("failed to create radial gradient".into()))
+            }
+        }
+    }
 }
 
 /// The image used for the software rasterizer.
@@ -116,6 +174,7 @@ impl Display {
             context,
             text: Text(piet_cosmic_text::Text::new()),
             path_builder: PathBuilder::new(),
+            glyph_cache: HashMap::new(),
         })
     }
 
@@ -143,12 +202,34 @@ impl Display {
 
     fn path_builder(&mut self) -> PathBuilder {
         self.path_builder.clear();
-        std::mem::replace(&mut self.path_builder, PathBuilder::new())
+        mem::replace(&mut self.path_builder, PathBuilder::new())
     }
 
     fn cache_path_builder(&mut self, path_builder: PathBuilder) {
         self.path_builder = path_builder;
     }
+}
+
+macro_rules! leap {
+    ($self:expr, $e:expr) => {{
+        match $e {
+            Ok(x) => x,
+            Err(err) => {
+                $self.last_error = Err(err);
+                return;
+            }
+        }
+    }};
+    ($self:expr, $e:expr, $err:expr) => {{
+        match $e {
+            Some(x) => x,
+            None => {
+                let err = $err;
+                $self.last_error = Err(Error::BackendError(err.into()));
+                return;
+            }
+        }
+    }};
 }
 
 impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
@@ -158,6 +239,10 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         width: u32,
         height: u32,
     ) -> Result<Self, Error> {
+        if width == 0 || height == 0 {
+            return Err(Error::InvalidInput);
+        }
+
         // Resize the buffer.
         let len = (width * height) as usize;
         surface.buffer.resize(len, 0);
@@ -169,6 +254,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
             last_error: Ok(()),
             render_states: TinyVec::from([Default::default()]),
             tolerance: 5.0,
+            dirty: true,
         })
     }
 
@@ -185,26 +271,27 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         self.render_states.last().unwrap()
     }
 
-    fn drawing_parts(&mut self) -> (&mut SoftbufferSurface, PixmapMut<'_>, &mut RenderState, f64) {
+    fn drawing_parts(&mut self) -> (&mut Display, PixmapMut<'_>, &mut RenderState, f64) {
         let Self {
-            surface,
+            display,
+            surface: Surface { buffer, .. },
             render_states,
             size,
             tolerance,
             ..
         } = self;
-        let Surface { surface, buffer } = surface;
+
         let pixmap = PixmapMut::from_bytes(
             bytemuck::cast_slice_mut(buffer.as_mut_slice()),
             size.0,
             size.1,
         )
-        .unwrap();
+        .expect("There should be no way to create a pixmap with invalid parameters");
 
         (
-            surface,
+            display,
             pixmap,
-            render_states.last_mut().unwrap(),
+            render_states.last_mut().expect(STACK_UNBALANCE),
             *tolerance,
         )
     }
@@ -219,12 +306,37 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
 
         let transform = convert_transform(state.transform);
 
-        if buffer
-            .fill_rect(convert_rect(rect), &paint, transform, state.clip.as_ref())
+        if convert_rect(rect)
+            .and_then(|rect| buffer.fill_rect(rect, &paint, transform, state.clip.as_ref()))
             .is_none()
         {
             self.last_error = Err(Error::BackendError("Failed to fill rect".into()));
         }
+
+        self.dirty = true;
+    }
+
+    fn fill_impl(&mut self, shape: impl Shape, brush: &Brush, fill_rule: FillRule) {
+        let mut builder = self.display.path_builder();
+        let (_, mut buffer, state, tolerance) = self.drawing_parts();
+        let paint = Paint {
+            shader: leap!(self, brush.to_shader()),
+            ..Default::default()
+        };
+
+        let transform = convert_transform(state.transform);
+        convert_shape(&mut builder, shape, tolerance, None);
+        let path = leap!(self, builder.finish(), "Failed to build path");
+
+        if buffer
+            .fill_path(&path, &paint, fill_rule, transform, state.clip.as_ref())
+            .is_none()
+        {
+            self.last_error = Err(Error::BackendError("Failed to fill path".into()));
+        }
+
+        self.display.cache_path_builder(path.clear());
+        self.dirty = true;
     }
 
     fn size(&self) -> Size {
@@ -232,7 +344,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
     }
 
     pub(super) fn status(&mut self) -> Result<(), Error> {
-        std::mem::replace(&mut self.last_error, Ok(()))
+        mem::replace(&mut self.last_error, Ok(()))
     }
 
     pub(super) fn solid_brush(&mut self, color: piet::Color) -> Brush {
@@ -240,7 +352,10 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
     }
 
     pub(super) fn gradient(&mut self, gradient: FixedGradient) -> Result<Brush, Error> {
-        todo!()
+        match gradient {
+            FixedGradient::Linear(linear) => Ok(Brush::LinearGradient(linear)),
+            FixedGradient::Radial(radial) => Ok(Brush::RadialGradient(radial)),
+        }
     }
 
     pub(super) fn clear(&mut self, region: Option<Rect>, color: piet::Color) {
@@ -256,7 +371,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
     }
 
     pub(super) fn stroke(&mut self, shape: impl Shape, brush: &Brush, width: f64) {
-        todo!()
+        self.stroke_styled(shape, brush, width, &Default::default())
     }
 
     pub(super) fn stroke_styled(
@@ -266,15 +381,58 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         width: f64,
         style: &StrokeStyle,
     ) {
-        todo!()
+        let mut builder = self.display.path_builder();
+        let (_, mut buffer, state, tolerance) = self.drawing_parts();
+
+        let paint = Paint {
+            shader: leap!(self, brush.to_shader()),
+            ..Default::default()
+        };
+
+        let transform = convert_transform(state.transform);
+
+        convert_shape(&mut builder, shape, tolerance, None);
+        let path = leap!(self, builder.finish(), "Failed to build path");
+
+        // Convert stroke properties.
+        let stroke = tiny_skia::Stroke {
+            width: width as f32,
+            miter_limit: style.miter_limit().map_or(4.0, |limit| limit as f32),
+            line_cap: match style.line_cap {
+                LineCap::Butt => tiny_skia::LineCap::Butt,
+                LineCap::Round => tiny_skia::LineCap::Round,
+                LineCap::Square => tiny_skia::LineCap::Square,
+            },
+            line_join: match style.line_join {
+                LineJoin::Bevel => tiny_skia::LineJoin::Bevel,
+                LineJoin::Round => tiny_skia::LineJoin::Round,
+                LineJoin::Miter { .. } => tiny_skia::LineJoin::Miter,
+            },
+            dash: if style.dash_pattern.is_empty() {
+                None
+            } else {
+                todo!()
+            },
+        };
+
+        // Draw the path.
+        if buffer
+            .stroke_path(&path, &paint, &stroke, transform, state.clip.as_ref())
+            .is_none()
+        {
+            self.last_error = Err(Error::BackendError("Failed to stroke path".into()));
+        }
+
+        self.display.cache_path_builder(path.clear());
+        self.dirty = true;
     }
 
     pub(super) fn fill(&mut self, shape: impl Shape, brush: &Brush) {
-        todo!()
+        self.fill_impl(shape, brush, FillRule::Winding)
     }
 
     pub(super) fn fill_even_odd(&mut self, shape: impl Shape, brush: &Brush) {
-        todo!()
+        self.fill_impl(shape, brush, FillRule::EvenOdd)
     }
 
     pub(super) fn clip(&mut self, shape: impl Shape) {
@@ -284,7 +442,13 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
 
         let transform = state.transform;
         convert_shape(&mut builder, shape, tolerance, Some(transform));
-        let path = builder.finish().unwrap();
+        let path = match builder.finish() {
+            Some(path) => path,
+            None => {
+                // Empty path.
+                return;
+            }
+        };
 
         // Either intersect with the current clip or create a new one.
         match &mut state.clip {
@@ -308,8 +472,64 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         &mut self.display.text
     }
 
-    pub(super) fn draw_text(&mut self, layout: &TextLayout, pos: impl Into<piet::kurbo::Point>) {
-        todo!()
+    pub(super) fn draw_text(&mut self, layout: &TextLayout, pos: impl Into<Point>) {
+        let (display, mut buffer, state, ..) = self.drawing_parts();
+        let pos = pos.into();
+
+        for (glyph, y_start) in layout
+            .0
+            .layout_runs()
+            .flat_map(|run| run.glyphs.iter().map(move |glyph| (glyph, run.line_y)))
+        {
+            // Get the rasterized glyph for this glyph.
+            let rasterized = match display.glyph_cache.entry(glyph.cache_key) {
+                Entry::Occupied(o) => o.into_mut(),
+                Entry::Vacant(v) => {
+                    let font = layout
+                        .0
+                        .buffer()
+                        .font_system()
+                        .get_font(glyph.cache_key.font_id)
+                        .expect("Font not found");
+                    let pixmap = leap!(self, rasterize_glyph(&font, glyph.cache_key));
+                    v.insert(pixmap)
+                }
+            };
+
+            let pattern = tiny_skia::Pattern::new(
+                rasterized.as_ref(),
+                tiny_skia::SpreadMode::Pad,
+                tiny_skia::FilterQuality::Bilinear,
+                1.0,
+                tiny_skia::Transform::identity(),
+            );
+
+            // Compute the position of the glyph.
+            let x = glyph.x_int + pos.x as i32;
+            let y = glyph.y_int + y_start + pos.y as i32;
+
+            let paint = Paint {
+                shader: pattern,
+                ..Default::default()
+            };
+
+            // Composite the glyph onto the buffer.
+            let transform = convert_transform(state.transform);
+            leap!(
+                self,
+                buffer.fill_rect(
+                    convert_rect(Rect::from_origin_size(
+                        (x as f64, y as f64),
+                        (rasterized.width() as f64, rasterized.height() as f64),
+                    ))
+                    .unwrap(),
+                    &paint,
+                    transform,
+                    state.clip.as_ref(),
+                ),
+                "Failed to draw text"
+            );
+        }
     }
 
     pub(super) fn save(&mut self) -> Result<(), Error> {
@@ -381,18 +601,49 @@ impl Image {
     }
 }
 
+fn rasterize_glyph(face: &Font<'_>, glyph_key: CacheKey) -> Result<Pixmap, Error> {
+    use ab_glyph::Font;
+
+    // Set up a rasterizer.
+    let font_ref =
+        ab_glyph::FontRef::try_from_slice_and_index(face.data, face.info.index).piet_err()?;
+
+    // Get the scaled glyph.
+    let glyph = ab_glyph::GlyphId(glyph_key.glyph_id).with_scale(glyph_key.font_size as f32);
+
+    // Outline the glyph.
+    let outlined = match font_ref.outline_glyph(glyph) {
+        Some(outlined) => outlined,
+        None => {
+            // TODO
+            return Err(Error::Unimplemented);
+        }
+    };
+
+    // Create a pixmap.
+    let width = outlined.glyph().scale.x as u32;
+    let height = outlined.glyph().scale.y as u32;
+
+    let mut pixmap = Pixmap::new(width, height).expect("Bounds should never be zero");
+
+    // Rasterize the glyph.
+    outlined.draw(|x, y, c| todo!());
+
+    Ok(pixmap)
+}
+
 fn convert_transform(affine: Affine) -> tiny_skia::Transform {
     let [a, b, c, d, e, f] = affine.as_coeffs();
     tiny_skia::Transform::from_row(a as f32, b as f32, c as f32, d as f32, e as f32, f as f32)
 }
 
-fn convert_rect(rect: Rect) -> tiny_skia::Rect {
+fn convert_rect(rect: Rect) -> Option<tiny_skia::Rect> {
     let x = rect.x0 as f32;
     let y = rect.y0 as f32;
     let width = rect.width() as f32;
     let height = rect.height() as f32;
 
-    tiny_skia::Rect::from_xywh(x, y, width, height).unwrap()
+    tiny_skia::Rect::from_xywh(x, y, width, height)
 }
 
 fn convert_point(point: Point) -> tiny_skia::Point {
@@ -457,3 +708,9 @@ fn convert_shape(
         }
     })
 }
+
+fn convert_gradient_stop(stop: &piet::GradientStop) -> tiny_skia::GradientStop {
+    tiny_skia::GradientStop::new(stop.pos as f32, convert_color(stop.color))
+}
+
+const STACK_UNBALANCE: &str = "Render state stack unbalance";
