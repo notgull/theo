@@ -31,8 +31,8 @@ use glutin::prelude::*;
 use glutin::surface::{Surface as GlutinSurface, SurfaceAttributesBuilder, WindowSurface};
 
 use glow::Context;
-use piet::kurbo::{Rect, Shape};
-use piet::{IntoBrush, StrokeStyle};
+use piet::kurbo::{Point, Rect, Shape};
+use piet::{IntoBrush, RenderContext as _, StrokeStyle};
 use piet_glow::GlContext;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
@@ -80,11 +80,16 @@ pub(super) struct RenderContext<'dsp, 'surf> {
 
     /// The text renderer.
     text: Text,
+
+    /// Whether or not we need to check for the context being current.
+    check_current: bool,
+
+    /// The status from `check_current`.
+    current_mismatch: Result<(), Error>,
 }
 
-/// The brush for the GL backend.
-#[derive(Clone)]
-pub(super) struct Brush(piet_glow::Brush<Context>);
+type Brush = piet_glow::Brush<Context>;
+type Image = piet_glow::Image<Context>;
 
 impl Display {
     pub(super) unsafe fn new(
@@ -232,145 +237,256 @@ impl Display {
 }
 
 impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
-    pub(super) fn new(
+    pub(super) unsafe fn new(
         display: &'dsp mut Display,
         surface: &'surf mut Surface,
         width: u32,
         height: u32,
     ) -> Result<Self, Error> {
-        todo!()
-    }
-}
-
-impl piet::RenderContext for RenderContext<'_, '_> {
-    type Brush = Brush;
-    type Image = piet_glow::Image<Context>;
-    type Text = Text;
-    type TextLayout = TextLayout;
-
-    fn status(&mut self) -> Result<(), Error> {
-        self.inner.status()
+        Self::new_impl(display, surface, width, height, true)
     }
 
-    fn solid_brush(&mut self, color: piet::Color) -> Self::Brush {
-        Brush(self.inner.solid_brush(color))
+    pub(super) unsafe fn new_unchecked(
+        display: &'dsp mut Display,
+        surface: &'surf mut Surface,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, Error> {
+        Self::new_impl(display, surface, width, height, false)
     }
 
-    fn gradient(&mut self, gradient: impl Into<piet::FixedGradient>) -> Result<Self::Brush, Error> {
-        self.inner.gradient(gradient).map(Brush)
+    unsafe fn new_impl(
+        display: &'dsp mut Display,
+        surface: &'surf mut Surface,
+        width: u32,
+        height: u32,
+        check_current: bool,
+    ) -> Result<Self, Error> {
+        let Display {
+            context,
+            renderer,
+            display,
+            ..
+        } = display;
+
+        // Make the context current.
+        let not_current_context = context.take().unwrap();
+
+        // TODO: Restore not_current_context if this call fails.
+        let current_context = not_current_context
+            .make_current(&surface.surface)
+            .piet_err()?;
+        let scope = ContextScope {
+            slot: context,
+            context: Some(current_context),
+        };
+
+        // Resize the surface.
+        surface.surface.resize(
+            scope.context(),
+            NonZeroU32::new(width).unwrap(),
+            NonZeroU32::new(height).unwrap(),
+        );
+
+        // Initialize the renderer if it hasn't been initialized yet.
+        let renderer = match renderer {
+            Some(ref mut renderer) => renderer,
+            slot @ None => {
+                // Create the new GlContext.
+                // SAFETY: The context is current.
+                slot.insert(unsafe {
+                    let context = glow::Context::from_loader_function_cstr(|s| {
+                        display.get_proc_address(s) as *const _
+                    });
+
+                    GlContext::new(context).piet_err()?
+                })
+            }
+        };
+
+        // Create a draw context on top of that.
+        // SAFETY: The context is current.
+        let mut draw_context = unsafe { piet_glow::RenderContext::new(renderer, width, height) };
+
+        Ok(Self {
+            _scope: scope,
+            text: Text(draw_context.text().clone()),
+            inner: draw_context,
+            surface,
+            check_current: true, // TODO
+            current_mismatch: Ok(()),
+        })
     }
 
-    fn clear(&mut self, region: impl Into<Option<Rect>>, color: piet::Color) {
+    #[inline]
+    fn check_current(&self) -> Result<(), Error> {
+        if self.check_current && !self._scope.context().is_current() {
+            return Err(Error::BackendError("Context is not current".into()));
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    fn not_current(&mut self) -> bool {
+        match self.check_current() {
+            Ok(()) => false,
+            Err(e) => {
+                self.current_mismatch = Err(e);
+                true
+            }
+        }
+    }
+
+    pub(super) fn status(&mut self) -> Result<(), Error> {
+        let status = self.inner.status();
+        let mismatch = std::mem::replace(&mut self.current_mismatch, Ok(()));
+        status.and(mismatch)
+    }
+
+    pub(super) fn solid_brush(&mut self, color: piet::Color) -> Brush {
+        // SAFETY: This doesn't involve any GL for the time being, and probably won't ever.
+        self.inner.solid_brush(color)
+    }
+
+    pub(super) fn gradient(&mut self, gradient: piet::FixedGradient) -> Result<Brush, Error> {
+        self.check_current()?;
+        self.inner.gradient(gradient)
+    }
+
+    pub(super) fn clear(&mut self, region: Option<Rect>, color: piet::Color) {
+        if self.not_current() {
+            return;
+        }
+
         self.inner.clear(region, color)
     }
 
-    fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
-        let brush = brush.make_brush(self, || shape.bounding_box());
-        self.inner.stroke(shape, &brush.as_ref().0, width)
+    pub(super) fn stroke(&mut self, shape: impl Shape, brush: &Brush, width: f64) {
+        if self.not_current() {
+            return;
+        }
+        self.inner.stroke(shape, brush, width)
     }
 
-    fn stroke_styled(
+    pub(super) fn stroke_styled(
         &mut self,
         shape: impl Shape,
-        brush: &impl IntoBrush<Self>,
+        brush: &Brush,
         width: f64,
         style: &StrokeStyle,
     ) {
-        let brush = brush.make_brush(self, || shape.bounding_box());
-        self.inner
-            .stroke_styled(shape, &brush.as_ref().0, width, style)
+        if self.not_current() {
+            return;
+        }
+        self.inner.stroke_styled(shape, brush, width, style)
     }
 
-    fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
-        let brush = brush.make_brush(self, || shape.bounding_box());
-        self.inner.fill(shape, &brush.as_ref().0)
+    pub(super) fn fill(&mut self, shape: impl Shape, brush: &Brush) {
+        if self.not_current() {
+            return;
+        }
+        self.inner.fill(shape, brush)
     }
 
-    fn fill_even_odd(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
-        let brush = brush.make_brush(self, || shape.bounding_box());
-        self.inner.fill_even_odd(shape, &brush.as_ref().0)
+    pub(super) fn fill_even_odd(&mut self, shape: impl Shape, brush: &Brush) {
+        if self.not_current() {
+            return;
+        }
+        self.inner.fill_even_odd(shape, brush)
     }
 
-    fn clip(&mut self, shape: impl Shape) {
+    pub(super) fn clip(&mut self, shape: impl Shape) {
+        if self.not_current() {
+            return;
+        }
         self.inner.clip(shape)
     }
 
-    fn text(&mut self) -> &mut Self::Text {
+    pub(super) fn text(&mut self) -> &mut Text {
+        // SAFETY: Doesn't involve GL.
         &mut self.text
     }
 
-    fn draw_text(&mut self, layout: &Self::TextLayout, pos: impl Into<piet::kurbo::Point>) {
+    pub(super) fn draw_text(&mut self, layout: &TextLayout, pos: Point) {
+        if self.not_current() {
+            return;
+        }
         self.inner.draw_text(&layout.0, pos)
     }
 
-    fn save(&mut self) -> Result<(), Error> {
+    pub(super) fn save(&mut self) -> Result<(), Error> {
+        self.check_current()?;
         self.inner.save()
     }
 
-    fn restore(&mut self) -> Result<(), Error> {
+    pub(super) fn restore(&mut self) -> Result<(), Error> {
+        self.check_current()?;
         self.inner.restore()
     }
 
-    fn finish(&mut self) -> Result<(), Error> {
+    pub(super) fn finish(&mut self) -> Result<(), Error> {
+        self.check_current()?;
         self.inner.finish()
     }
 
-    fn transform(&mut self, transform: piet::kurbo::Affine) {
+    pub(super) fn transform(&mut self, transform: piet::kurbo::Affine) {
+        // SAFETY: Doesn't involve GL.
         self.inner.transform(transform)
     }
 
-    fn make_image(
+    pub(super) fn make_image(
         &mut self,
         width: usize,
         height: usize,
         buf: &[u8],
         format: piet::ImageFormat,
-    ) -> Result<Self::Image, Error> {
+    ) -> Result<Image, Error> {
+        self.check_current()?;
         self.inner.make_image(width, height, buf, format)
     }
 
-    fn draw_image(
+    pub(super) fn draw_image(
         &mut self,
-        image: &Self::Image,
-        dst_rect: impl Into<Rect>,
+        image: &Image,
+        dst_rect: Rect,
         interp: piet::InterpolationMode,
     ) {
+        if self.not_current() {
+            return;
+        }
         self.inner.draw_image(image, dst_rect, interp)
     }
 
-    fn draw_image_area(
+    pub(super) fn draw_image_area(
         &mut self,
-        image: &Self::Image,
-        src_rect: impl Into<Rect>,
-        dst_rect: impl Into<Rect>,
+        image: &Image,
+        src_rect: Rect,
+        dst_rect: Rect,
         interp: piet::InterpolationMode,
     ) {
+        if self.not_current() {
+            return;
+        }
         self.inner
             .draw_image_area(image, src_rect, dst_rect, interp)
     }
 
-    fn capture_image_area(&mut self, src_rect: impl Into<Rect>) -> Result<Self::Image, Error> {
+    pub(super) fn capture_image_area(&mut self, src_rect: Rect) -> Result<Image, Error> {
+        self.check_current()?;
         self.inner.capture_image_area(src_rect)
     }
 
-    fn blurred_rect(&mut self, rect: Rect, blur_radius: f64, brush: &impl IntoBrush<Self>) {
-        let brush = brush.make_brush(self, || rect);
-        self.inner
-            .blurred_rect(rect, blur_radius, &brush.as_ref().0)
+    pub(super) fn blurred_rect(&mut self, rect: Rect, blur_radius: f64, brush: &Brush) {
+        if self.not_current() {
+            return;
+        }
+        self.inner.blurred_rect(rect, blur_radius, brush)
     }
 
-    fn current_transform(&self) -> piet::kurbo::Affine {
+    pub(super) fn current_transform(&self) -> piet::kurbo::Affine {
+        // SAFETY: Doesn't involve GL.
         self.inner.current_transform()
-    }
-}
-
-impl IntoBrush<RenderContext<'_, '_>> for Brush {
-    fn make_brush<'a>(
-        &'a self,
-        piet: &mut RenderContext<'_, '_>,
-        bbox: impl FnOnce() -> Rect,
-    ) -> Cow<'a, <RenderContext<'_, '_> as piet::RenderContext>::Brush> {
-        Cow::Borrowed(self)
     }
 }
 

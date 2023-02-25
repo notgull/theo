@@ -45,11 +45,18 @@ use raw_window_handle::{
 };
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::fmt;
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 pub use text::{Text, TextLayout, TextLayoutBuilder};
+
+std::thread_local! {
+    // Make sure that we don't try to multiple contexts per thread.
+    static HAS_CONTEXT: Cell<bool> = Cell::new(false);
+}
 
 /// An error handler for GLX.
 pub type XlibErrorHookRegistrar =
@@ -140,6 +147,15 @@ impl fmt::Debug for Display {
     }
 }
 
+impl From<DisplayDispatch> for Display {
+    fn from(dispatch: DisplayDispatch) -> Self {
+        Self {
+            dispatch: Box::new(dispatch),
+            _thread_unsafe: PhantomData,
+        }
+    }
+}
+
 impl Display {
     /// Create a new [`DisplayBuilder`].
     pub fn builder() -> DisplayBuilder {
@@ -182,10 +198,39 @@ impl fmt::Debug for Surface {
     }
 }
 
+impl From<SurfaceDispatch> for Surface {
+    fn from(dispatch: SurfaceDispatch) -> Self {
+        Self {
+            dispatch: Box::new(dispatch),
+            _thread_unsafe: PhantomData,
+        }
+    }
+}
+
 /// The context used to draw to a [`Surface`].
 pub struct RenderContext<'dsp, 'surf> {
+    /// The dispatch used to draw to the surface.
     dispatch: Box<ContextDispatch<'dsp, 'surf>>,
+
+    /// The mismatch error.
+    mismatch: Result<(), Error>,
+
+    /// Whether we check for an existing context.
+    check_context: bool,
+
+    /// Ensure that the context is not sent to another thread.
     _thread_unsafe: PhantomData<*mut ()>,
+}
+
+impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
+    fn from_dispatch(dispatch: ContextDispatch<'dsp, 'surf>, check_context: bool) -> Self {
+        Self {
+            dispatch: Box::new(dispatch),
+            mismatch: Ok(()),
+            check_context,
+            _thread_unsafe: PhantomData,
+        }
+    }
 }
 
 impl fmt::Debug for RenderContext<'_, '_> {
@@ -194,11 +239,31 @@ impl fmt::Debug for RenderContext<'_, '_> {
     }
 }
 
+impl Drop for RenderContext<'_, '_> {
+    fn drop(&mut self) {
+        if self.check_context {
+            // Unlock the thread.
+            HAS_CONTEXT
+                .try_with(|has_context| has_context.set(false))
+                .ok();
+        }
+    }
+}
+
 /// The brushes used to draw to a [`Surface`].
 #[derive(Clone)]
 pub struct Brush {
-    dispatch: Box<BrushDispatch>,
+    dispatch: Rc<BrushDispatch>,
     _thread_unsafe: PhantomData<*mut ()>,
+}
+
+impl From<BrushDispatch> for Brush {
+    fn from(dispatch: BrushDispatch) -> Self {
+        Self {
+            dispatch: Rc::new(dispatch),
+            _thread_unsafe: PhantomData,
+        }
+    }
 }
 
 impl fmt::Debug for Brush {
@@ -210,8 +275,17 @@ impl fmt::Debug for Brush {
 /// The images used to draw to a [`Surface`].
 #[derive(Clone)]
 pub struct Image {
-    dispatch: Box<ImageDispatch>,
+    dispatch: Rc<ImageDispatch>,
     _thread_unsafe: PhantomData<*mut ()>,
+}
+
+impl From<ImageDispatch> for Image {
+    fn from(dispatch: ImageDispatch) -> Self {
+        Self {
+            dispatch: Rc::new(dispatch),
+            _thread_unsafe: PhantomData,
+        }
+    }
 }
 
 impl fmt::Debug for Image {
@@ -249,7 +323,6 @@ macro_rules! make_dispatch {
             )*
         }
 
-        #[derive(Clone)]
         enum BrushDispatch {
             $(
                 $(#[$meta])*
@@ -257,7 +330,6 @@ macro_rules! make_dispatch {
             )*
         }
 
-        #[derive(Clone)]
         enum ImageDispatch {
             $(
                 $(#[$meta])*
@@ -281,10 +353,7 @@ macro_rules! make_dispatch {
                 $(
                     match <$display>::new(&mut self, raw) {
                         Ok(display) => {
-                            return Ok(Display {
-                                dispatch: Box::new(DisplayDispatch::$name(display)),
-                                _thread_unsafe: PhantomData,
-                            });
+                            return Ok(DisplayDispatch::$name(display).into());
                         },
 
                         Err(e) => {
@@ -340,10 +409,7 @@ macro_rules! make_dispatch {
                         $(#[$meta])*
                         DisplayDispatch::$name(display) => {
                             let surface = display.make_surface(window, width, height)?;
-                            Ok(Surface {
-                                dispatch: Box::new(SurfaceDispatch::$name(surface)),
-                                _thread_unsafe: PhantomData,
-                            })
+                            Ok(SurfaceDispatch::$name(surface).into())
                         },
                     )*
                 }
@@ -358,15 +424,54 @@ macro_rules! make_dispatch {
                 width: u32,
                 height: u32,
             ) -> Result<Self, Error> {
+                // Make sure there's only one per thread.
+                let prev = HAS_CONTEXT
+                    .try_with(|has_context| has_context.replace(true))
+                    .piet_err()?;
+                if prev {
+                    return Err(Error::BackendError(
+                        "Only one context can be active per thread.".into()
+                    ));
+                }
+
                 match (&mut *display.dispatch, &mut *surface.dispatch) {
                     $(
                         $(#[$meta])*
                         (DisplayDispatch::$name(display), SurfaceDispatch::$name(surface)) => {
-                            let ctx = <$ctx>::new(display, surface, width, height)?;
-                            Ok(RenderContext {
-                                dispatch: Box::new(ContextDispatch::$name(ctx)),
-                                _thread_unsafe: PhantomData,
-                            })
+                            let ctx = unsafe {
+                                <$ctx>::new(display, surface, width, height)?
+                            };
+
+                            Ok(RenderContext::from_dispatch(
+                                ContextDispatch::$name(ctx),
+                                true
+                            ))
+                        },
+                    )*
+                    _ => Err(Error::InvalidInput)
+                }
+            }
+
+            /// Create a new [`RenderContext`] without checking for exclusive access.
+            ///
+            /// # Safety
+            ///
+            ///
+            pub unsafe fn new_unchecked(
+                display: &'dsp mut Display,
+                surface: &'surf mut Surface,
+                width: u32,
+                height: u32,
+            ) -> Result<Self, Error> {
+                match (&mut *display.dispatch, &mut *surface.dispatch) {
+                    $(
+                        $(#[$meta])*
+                        (DisplayDispatch::$name(display), SurfaceDispatch::$name(surface)) => {
+                            let ctx = <$ctx>::new_unchecked(display, surface, width, height)?;
+                            Ok(RenderContext::from_dispatch(
+                                ContextDispatch::$name(ctx),
+                                false
+                            ))
                         },
                     )*
                     _ => Err(Error::InvalidInput)
@@ -381,35 +486,38 @@ macro_rules! make_dispatch {
             type TextLayout = TextLayout;
 
             fn status(&mut self) -> Result<(), Error> {
-                match &mut *self.dispatch {
+                let mismatch = std::mem::replace(&mut self.mismatch, Ok(()));
+                let status = match &mut *self.dispatch {
                     $(
                         $(#[$meta])*
                         ContextDispatch::$name(ctx) => ctx.status(),
                     )*
-                }
+                };
+
+                status.and(mismatch)
             }
 
             fn solid_brush(&mut self, color: piet::Color) -> Self::Brush {
                 match &mut *self.dispatch {
                     $(
                         $(#[$meta])*
-                        ContextDispatch::$name(ctx) => Brush {
-                            dispatch: Box::new(BrushDispatch::$name(ctx.solid_brush(color))),
-                            _thread_unsafe: PhantomData,
+                        ContextDispatch::$name(ctx) => {
+                            let brush = ctx.solid_brush(color);
+                            BrushDispatch::$name(brush).into()
                         },
                     )*
                 }
             }
 
-            fn gradient(&mut self, gradient: impl Into<FixedGradient>) -> Result<Self::Brush, Error> {
+            fn gradient(
+                &mut self,
+                gradient: impl Into<FixedGradient>
+            ) -> Result<Self::Brush, Error> {
                 match &mut *self.dispatch {
                     $(
                         $(#[$meta])*
                         ContextDispatch::$name(ctx) => {
-                            Ok(Brush {
-                                dispatch: Box::new(BrushDispatch::$name(ctx.gradient(gradient)?)),
-                                _thread_unsafe: PhantomData,
-                            })
+                            Ok(BrushDispatch::$name(ctx.gradient(gradient.into())?).into())
                         },
                     )*
                 }
@@ -419,7 +527,7 @@ macro_rules! make_dispatch {
                 match &mut *self.dispatch {
                     $(
                         $(#[$meta])*
-                        ContextDispatch::$name(ctx) => ctx.clear(region, color),
+                        ContextDispatch::$name(ctx) => ctx.clear(region.into(), color),
                     )*
                 }
             }
@@ -506,7 +614,7 @@ macro_rules! make_dispatch {
                 match &mut *self.dispatch {
                     $(
                         $(#[$meta])*
-                        ContextDispatch::$name(ctx) => ctx.draw_text(layout, pos),
+                        ContextDispatch::$name(ctx) => ctx.draw_text(layout, pos.into()),
                     )*
                 }
             }
@@ -559,10 +667,7 @@ macro_rules! make_dispatch {
                         $(#[$meta])*
                         ContextDispatch::$name(ctx) => {
                             let img = ctx.make_image(width, height, buf, format)?;
-                            Ok(Image {
-                                dispatch: Box::new(ImageDispatch::$name(img)),
-                                _thread_unsafe: PhantomData,
-                            })
+                            Ok(ImageDispatch::$name(img).into())
                         }
                     )*
                 }
@@ -578,7 +683,7 @@ macro_rules! make_dispatch {
                     $(
                         $(#[$meta])*
                         (ContextDispatch::$name(ctx), ImageDispatch::$name(img)) => {
-                            ctx.draw_image(img, dst_rect, interp)
+                            ctx.draw_image(img, dst_rect.into(), interp)
                         }
                     )*
                     _ => unreachable!(),
@@ -596,7 +701,12 @@ macro_rules! make_dispatch {
                     $(
                         $(#[$meta])*
                         (ContextDispatch::$name(ctx), ImageDispatch::$name(img)) => {
-                            ctx.draw_image_area(img, src_rect, dst_rect, interp)
+                            ctx.draw_image_area(
+                                img,
+                                src_rect.into(),
+                                dst_rect.into(),
+                                interp
+                            )
                         }
                     )*
                     _ => unreachable!(),
@@ -608,11 +718,8 @@ macro_rules! make_dispatch {
                     $(
                         $(#[$meta])*
                         ContextDispatch::$name(ctx) => {
-                            let img = ctx.capture_image_area(src_rect)?;
-                            Ok(Image {
-                                dispatch: Box::new(ImageDispatch::$name(img)),
-                                _thread_unsafe: PhantomData,
-                            })
+                            let img = ctx.capture_image_area(src_rect.into())?;
+                            Ok(ImageDispatch::$name(img).into())
                         }
                     )*
                 }
@@ -644,18 +751,10 @@ macro_rules! make_dispatch {
         impl piet::IntoBrush<RenderContext<'_, '_>> for Brush {
             fn make_brush<'a>(
                 &'a self,
-                piet: &mut RenderContext<'_, '_>,
-                bbox: impl FnOnce() -> Rect,
+                _piet: &mut RenderContext<'_, '_>,
+                _bbox: impl FnOnce() -> Rect,
             ) -> Cow<'a, <RenderContext<'_, '_> as piet::RenderContext>::Brush> {
-                match (&*self.dispatch, &mut *piet.dispatch) {
-                    $(
-                        $(#[$meta])*
-                        (BrushDispatch::$name(brush), ContextDispatch::$name(ctx)) => {
-                            todo!()
-                        },
-                    )*
-                    _ => panic!("invalid brush dispatch"),
-                }
+                Cow::Borrowed(self)
             }
         }
 
@@ -681,12 +780,12 @@ make_dispatch! {
         swrast::Image
     ),
 
-    #[cfg(feature = "gl")]
+    #[cfg(all(feature = "gl", not(target_family = "wasm")))]
     DesktopGl(
         desktop_gl::Display,
         desktop_gl::Surface,
         desktop_gl::RenderContext<'dsp, 'surf>,
-        desktop_gl::Brush,
+        piet_glow::Brush<glow::Context>,
         piet_glow::Image<glow::Context>
     ),
 }
