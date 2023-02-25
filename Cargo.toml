@@ -17,6 +17,7 @@ piet-glow = { git = "https://github.com/notgull/piet-glow.git", version = "0.1.0
 raw-window-handle = "0.5.0"
 softbuffer = { git = "https://github.com/rust-windowing/softbuffer", version = "0.2.0" }
 tiny-skia = { version = "0.8.3", default-features = false, features = ["std"] }
+tiny-skia-path = "0.8.3"
 tinyvec = { version = "1.6.0", default-features = false, features = ["alloc"] }
 tracing = { version = "0.1.37", default-features = false }
 

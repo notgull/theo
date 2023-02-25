@@ -29,7 +29,7 @@
 //!
 //! First, users must create a [`Display`], which represents the root display of the system.
 //! From here, users should create [`Surface`]s, which represent drawing areas. Finally,
-//! a [`Surface`] can be used to create the [`Context`] type, which is used to draw.
+//! a [`Surface`] can be used to create the [`RenderContext`] type, which is used to draw.
 
 #[cfg(feature = "gl")]
 mod desktop_gl;
@@ -129,7 +129,8 @@ impl DisplayBuilder {
     ///
     /// # Safety
     ///
-    /// TODO
+    /// - The `display` handle must be a valid `display` that isn't currently suspended.
+    /// - The `window` handle, if any, must also be valid.
     pub unsafe fn build(self, display: impl HasRawDisplayHandle) -> Result<Display, Error> {
         self.build_from_raw(display.raw_display_handle())
     }
@@ -166,7 +167,8 @@ impl Display {
     ///
     /// # Safety
     ///
-    /// TODO
+    /// The `display` handle must be a valid `display` that isn't currently suspended.
+    /// See the safety requirements of [`DisplayBuilder::build`] for more information.
     pub unsafe fn new(display: impl HasRawDisplayHandle) -> Result<Self, Error> {
         Self::builder().build_from_raw(display.raw_display_handle())
     }
@@ -175,7 +177,9 @@ impl Display {
     ///
     /// # Safety
     ///
-    /// TODO
+    /// The `window` handle must be a valid `window` that isn't currently suspended. The
+    /// `width` and `height` parameters aren't necessarily required to be correct, but
+    /// it's recommended that they are in order to avoid visual bugs.
     pub unsafe fn make_surface(
         &mut self,
         window: impl HasRawWindowHandle,
@@ -342,7 +346,8 @@ macro_rules! make_dispatch {
             ///
             /// # Safety
             ///
-            /// TODO
+            /// The `raw` handle must be a valid `display` that isn't currently suspended.
+            /// The `raw` handle must be valid for the duration of the [`Display`].
             #[allow(unused_assignments)]
             pub unsafe fn build_from_raw(
                 mut self,

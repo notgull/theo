@@ -32,11 +32,10 @@ use glutin::surface::{Surface as GlutinSurface, SurfaceAttributesBuilder, Window
 
 use glow::Context;
 use piet::kurbo::{Point, Rect, Shape};
-use piet::{IntoBrush, RenderContext as _, StrokeStyle};
+use piet::{RenderContext as _, StrokeStyle};
 use piet_glow::GlContext;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
-use std::borrow::Cow;
 use std::fmt;
 use std::num::NonZeroU32;
 use std::ptr::NonNull;
@@ -70,13 +69,13 @@ pub(super) struct Surface {
 /// not current when it is dropped.
 pub(super) struct RenderContext<'dsp, 'surf> {
     /// The scope object that makes the context not current when it is dropped.
-    _scope: ContextScope<'dsp>,
+    scope: ContextScope<'dsp>,
 
     /// The piet-glow render context.
     inner: piet_glow::RenderContext<'dsp, Context>,
 
     /// The surface.
-    surface: &'surf mut Surface,
+    _surface: &'surf mut Surface,
 
     /// The text renderer.
     text: Text,
@@ -309,18 +308,18 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         let mut draw_context = unsafe { piet_glow::RenderContext::new(renderer, width, height) };
 
         Ok(Self {
-            _scope: scope,
+            scope,
             text: Text(draw_context.text().clone()),
             inner: draw_context,
-            surface,
-            check_current: true, // TODO
+            _surface: surface,
+            check_current,
             current_mismatch: Ok(()),
         })
     }
 
     #[inline]
     fn check_current(&self) -> Result<(), Error> {
-        if self.check_current && !self._scope.context().is_current() {
+        if self.check_current && !self.scope.context().is_current() {
             return Err(Error::BackendError("Context is not current".into()));
         }
 
@@ -501,10 +500,6 @@ struct ContextScope<'a> {
 impl ContextScope<'_> {
     fn context(&self) -> &PossiblyCurrentContext {
         self.context.as_ref().unwrap()
-    }
-
-    fn context_mut(&mut self) -> &mut PossiblyCurrentContext {
-        self.context.as_mut().unwrap()
     }
 }
 

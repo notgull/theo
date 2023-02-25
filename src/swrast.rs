@@ -26,21 +26,18 @@ use super::{DisplayBuilder, Error, ResultExt};
 use piet::kurbo::{Affine, PathEl, Point, Rect, Shape, Size};
 use piet::{
     FixedGradient, FixedLinearGradient, FixedRadialGradient, ImageFormat, InterpolationMode,
-    IntoBrush, LineCap, LineJoin, StrokeStyle,
+    LineCap, LineJoin, StrokeStyle,
 };
 
-use cosmic_text::{CacheKey, Font};
+use cosmic_text::{CacheKey, Color as CosmicColor, Font};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use softbuffer::{Context, Surface as SoftbufferSurface};
 use tiny_skia::{ClipMask, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader};
 use tinyvec::TinyVec;
 
-use std::borrow::Cow;
 use std::collections::hash_map::{Entry, HashMap};
-use std::marker::PhantomData;
 use std::mem;
 use std::ptr::NonNull;
-use std::rc::Rc;
 
 /// The display for the software rasterizer.
 pub(super) struct Display {
@@ -54,7 +51,7 @@ pub(super) struct Display {
     path_builder: PathBuilder,
 
     /// Map between cache keys and cached glyphs.
-    glyph_cache: HashMap<CacheKey, Pixmap>,
+    glyph_cache: HashMap<(CacheKey, CosmicColor), Pixmap>,
 }
 
 /// The surface for the software rasterizer.
@@ -411,7 +408,10 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
             dash: if style.dash_pattern.is_empty() {
                 None
             } else {
-                todo!()
+                tiny_skia::StrokeDash::new(
+                    style.dash_pattern.iter().map(|&x| x as f32).collect(),
+                    style.dash_offset as f32,
+                )
             },
         };
 
@@ -482,7 +482,10 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
             .flat_map(|run| run.glyphs.iter().map(move |glyph| (glyph, run.line_y)))
         {
             // Get the rasterized glyph for this glyph.
-            let rasterized = match display.glyph_cache.entry(glyph.cache_key) {
+            let color = glyph
+                .color_opt
+                .unwrap_or(CosmicColor::rgba(0x0, 0x0, 0x0, 0xFF));
+            let rasterized = match display.glyph_cache.entry((glyph.cache_key, color)) {
                 Entry::Occupied(o) => o.into_mut(),
                 Entry::Vacant(v) => {
                     let font = layout
@@ -491,7 +494,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                         .font_system()
                         .get_font(glyph.cache_key.font_id)
                         .expect("Font not found");
-                    let pixmap = leap!(self, rasterize_glyph(&font, glyph.cache_key));
+                    let pixmap = leap!(self, rasterize_glyph(&font, glyph.cache_key, color));
                     v.insert(pixmap)
                 }
             };
@@ -547,7 +550,19 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
     }
 
     pub(super) fn finish(&mut self) -> Result<(), Error> {
-        todo!()
+        // tiny-skia uses an RGBA format, while softbuffer uses XRGB. To convert, we need to
+        // iterate over the pixels and shift the pixels over.
+        self.surface.buffer.iter_mut().for_each(|pixel| {
+            let bytes = pixel.to_ne_bytes();
+            *pixel = u32::from_ne_bytes([bytes[1], bytes[2], bytes[3], 0xff]);
+        });
+
+        // Upload the buffer.
+        self.surface
+            .surface
+            .set_buffer(&self.surface.buffer, self.size.0 as _, self.size.1 as _);
+
+        Ok(())
     }
 
     pub(super) fn transform(&mut self, transform: Affine) {
@@ -562,11 +577,34 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         buf: &[u8],
         format: ImageFormat,
     ) -> Result<Image, Error> {
-        todo!()
+        let buffer = match format {
+            ImageFormat::RgbaPremul => {
+                // This is the format that tiny-skia uses, so we can just use the buffer directly.
+                buf.to_vec()
+            }
+
+            _ => {
+                return Err(Error::NotSupported);
+            }
+        };
+
+        let pixmap = Pixmap::from_vec(
+            buffer,
+            tiny_skia_path::IntSize::from_wh(width as _, height as _)
+                .ok_or_else(|| Error::InvalidInput)?,
+        )
+        .ok_or_else(|| Error::InvalidInput)?;
+
+        Ok(Image(pixmap))
     }
 
     pub(super) fn draw_image(&mut self, image: &Image, dst_rect: Rect, interp: InterpolationMode) {
-        todo!()
+        self.draw_image_area(
+            image,
+            Rect::new(0.0, 0.0, image.size().width, image.size().height),
+            dst_rect,
+            interp,
+        )
     }
 
     pub(super) fn draw_image_area(
@@ -576,15 +614,87 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         dst_rect: Rect,
         interp: InterpolationMode,
     ) {
-        todo!()
+        // Create a transform to scale the image to the correct size.
+        let transform = convert_transform(
+            Affine::translate((src_rect.x0, src_rect.y0))
+                * Affine::scale_non_uniform(
+                    src_rect.width() / dst_rect.width(),
+                    src_rect.height() / dst_rect.height(),
+                ),
+        );
+
+        // Create a pattern.
+        let pattern = tiny_skia::Pattern::new(
+            image.0.as_ref(),
+            tiny_skia::SpreadMode::Pad,
+            match interp {
+                InterpolationMode::NearestNeighbor => tiny_skia::FilterQuality::Nearest,
+                InterpolationMode::Bilinear => tiny_skia::FilterQuality::Bilinear,
+            },
+            1.0,
+            transform,
+        );
+        let paint = Paint {
+            shader: pattern,
+            ..Default::default()
+        };
+
+        // Draw the image.
+        let (_, mut buffer, state, ..) = self.drawing_parts();
+        let transform = convert_transform(state.transform);
+        leap!(
+            self,
+            buffer.fill_rect(
+                convert_rect(dst_rect).unwrap(),
+                &paint,
+                transform,
+                state.clip.as_ref(),
+            ),
+            "Failed to draw image"
+        );
     }
 
     pub(super) fn capture_image_area(&mut self, src_rect: Rect) -> Result<Image, Error> {
-        todo!()
+        let (width, height) = (src_rect.width() as u32, src_rect.height() as u32);
+        let mut pixmap = Pixmap::new(width, height).ok_or_else(|| Error::InvalidInput)?;
+
+        // Copy the pixels from the surface.
+        let transform = convert_transform(
+            Affine::translate((src_rect.x0, src_rect.y0))
+                * Affine::scale_non_uniform(
+                    src_rect.width() / self.size.0 as f64,
+                    src_rect.height() / self.size.1 as f64,
+                ),
+        );
+
+        let (_, buffer, ..) = self.drawing_parts();
+        let shader = tiny_skia::Pattern::new(
+            buffer.as_ref(),
+            tiny_skia::SpreadMode::Pad,
+            tiny_skia::FilterQuality::Bilinear,
+            1.0,
+            transform,
+        );
+        let paint = tiny_skia::Paint {
+            shader,
+            ..Default::default()
+        };
+
+        pixmap
+            .fill_rect(
+                tiny_skia::Rect::from_xywh(0.0, 0.0, width as _, height as _).unwrap(),
+                &paint,
+                tiny_skia::Transform::identity(),
+                None,
+            )
+            .ok_or_else(|| Error::InvalidInput)?;
+
+        // Return the image.
+        Ok(Image(pixmap))
     }
 
-    pub(super) fn blurred_rect(&mut self, rect: Rect, blur_radius: f64, brush: &Brush) {
-        todo!()
+    pub(super) fn blurred_rect(&mut self, _rect: Rect, _blur_radius: f64, _brush: &Brush) {
+        self.last_error = Err(Error::NotSupported);
     }
 
     pub(super) fn current_transform(&self) -> Affine {
@@ -601,7 +711,12 @@ impl Image {
     }
 }
 
-fn rasterize_glyph(face: &Font<'_>, glyph_key: CacheKey) -> Result<Pixmap, Error> {
+/// Rasterize a glyph to a `Pixmap` using `ab_glyph`.
+fn rasterize_glyph(
+    face: &Font<'_>,
+    glyph_key: CacheKey,
+    color: CosmicColor,
+) -> Result<Pixmap, Error> {
     use ab_glyph::Font;
 
     // Set up a rasterizer.
@@ -610,6 +725,9 @@ fn rasterize_glyph(face: &Font<'_>, glyph_key: CacheKey) -> Result<Pixmap, Error
 
     // Get the scaled glyph.
     let glyph = ab_glyph::GlyphId(glyph_key.glyph_id).with_scale(glyph_key.font_size as f32);
+    let [r, g, b, a] = [color.r(), color.g(), color.b(), color.a()];
+
+    let color = tiny_skia::ColorU8::from_rgba(r, g, b, a);
 
     // Outline the glyph.
     let outlined = match font_ref.outline_glyph(glyph) {
@@ -625,9 +743,23 @@ fn rasterize_glyph(face: &Font<'_>, glyph_key: CacheKey) -> Result<Pixmap, Error
     let height = outlined.glyph().scale.y as u32;
 
     let mut pixmap = Pixmap::new(width, height).expect("Bounds should never be zero");
+    let width = pixmap.width();
+    let pixels = pixmap.pixels_mut();
 
     // Rasterize the glyph.
-    outlined.draw(|x, y, c| todo!());
+    outlined.draw(|x, y, c| {
+        let color = {
+            tiny_skia::ColorU8::from_rgba(
+                color.red(),
+                color.green(),
+                color.blue(),
+                (color.alpha() as f32 * c) as u8,
+            )
+        };
+
+        let index = (y * width + x) as usize;
+        pixels[index] = color.premultiply();
+    });
 
     Ok(pixmap)
 }
@@ -710,7 +842,7 @@ fn convert_shape(
 }
 
 fn convert_gradient_stop(stop: &piet::GradientStop) -> tiny_skia::GradientStop {
-    tiny_skia::GradientStop::new(stop.pos as f32, convert_color(stop.color))
+    tiny_skia::GradientStop::new(stop.pos, convert_color(stop.color))
 }
 
 const STACK_UNBALANCE: &str = "Render state stack unbalance";
