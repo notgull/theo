@@ -1,0 +1,32 @@
+[package]
+name = "theo"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-or-later OR MPL-2.0"
+authors = ["John Nunley <jtnunley01@gmail.com>"]
+description = "A standalone renderer for windowing graphics"
+
+[dependencies]
+ab_glyph = "0.2.20"
+cosmic-text = { version = "0.7.0", default-features = false, features = ["std"] }
+glow = { version = "0.12.1", optional = true }
+glutin = { version = "0.30.6", default-features = false, optional = true, features = ["egl"] }
+piet = { version = "0.6.2", default-features = false }
+piet-cosmic-text = "0.1.1"
+piet-glow = { git = "https://github.com/notgull/piet-glow.git", version = "0.1.0" }
+raw-window-handle = "0.5.0"
+softbuffer = { git = "https://github.com/rust-windowing/softbuffer", version = "0.2.0" }
+tiny-skia = { version = "0.8.3", default-features = false, features = ["std"] }
+tracing = { version = "0.1.37", default-features = false }
+
+[features]
+default = ["gl", "x11", "wayland", "egl", "glx", "wgl"]
+gl = ["glow", "glutin"]
+x11 = ["glutin?/x11", "softbuffer/x11"]
+wayland = ["glutin?/wayland", "softbuffer/wayland"]
+egl = ["gl", "glutin/egl"]
+glx = ["gl", "glutin/glx"]
+wgl = ["gl", "glutin/wgl"]
+
+[build-dependencies]
+cfg_aliases = "0.1.1"
