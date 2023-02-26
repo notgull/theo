@@ -2,8 +2,8 @@
 
 use std::time::{Duration, Instant};
 
+use piet::kurbo::{Affine, BezPath, Point, Rect};
 use piet::RenderContext as _;
-use piet::kurbo::{BezPath, Point, Affine};
 use theo::{Display, RenderContext};
 
 use winit::dpi::LogicalSize;
@@ -30,7 +30,7 @@ fn main() -> ! {
     let mut display = {
         let mut display = Display::builder().transparent(true);
 
-        // Uncomment this to enforce software rendering.
+        // Uncomment this to force software rendering.
         //display = display.force_swrast(true);
 
         // On Windows, we should set up a window first. Otherwise, the GL features
@@ -67,26 +67,30 @@ fn main() -> ! {
     let mut next_frame = Instant::now() + framerate;
 
     // Consistent drawing properties.
-    let star = generate_five_pointed_star(
-        (0.0, 0.0).into(),
-        75.0,
-        150.0
-    ); 
+    let star = generate_five_pointed_star((0.0, 0.0).into(), 75.0, 150.0);
     let mut fill_brush = None;
     let mut stroke_brush = None;
     let mut tick = 0;
+    let mut image_handle = None;
+
+    // Get the test image at $CRATE_ROOT/examples/assets/test-image.png
+    let manifest_root = env!("CARGO_MANIFEST_DIR");
+    let path = std::path::Path::new(manifest_root).join("examples/assets/test-image.png");
+    let image = image::open(path).expect("Failed to open image").to_rgba8();
+    let image_size = image.dimensions();
+    let image_data = image.into_raw();
 
     // Function for drawing, called every frame.
     let mut draw = move |render_context: &mut RenderContext<'_, '_>| {
         use piet::Color;
 
         // Clear the screen.
-        render_context.clear(None, Color::SILVER);
+        render_context.clear(None, Color::rgb8(0x87, 0xce, 0xeb));
 
         // Fill in the star.
-        let fill_brush = fill_brush.get_or_insert_with(|| {
-            render_context.solid_brush(Color::RED)
-        });
+        let fill_brush = fill_brush.get_or_insert_with(|| render_context.solid_brush(Color::RED));
+        let stroke_brush =
+            stroke_brush.get_or_insert_with(|| render_context.solid_brush(Color::BLACK));
 
         let rotation = {
             let angle_rad = (tick as f64) * 0.02;
@@ -99,14 +103,53 @@ fn main() -> ! {
             render_context.fill(&star, fill_brush);
 
             // Stroke the star.
-            let stroke_brush = stroke_brush.get_or_insert_with(|| {
-                render_context.solid_brush(Color::BLACK)
-            });
-
             render_context.stroke(&star, stroke_brush, 5.0);
 
             Ok(())
         })?;
+
+        // Create an image and draw with it.
+        let image_handle = image_handle
+            .get_or_insert_with(|| {
+                render_context.make_image(
+                    image_size.0 as _,
+                    image_size.1 as _,
+                    &image_data,
+                    piet::ImageFormat::RgbaSeparate,
+                )
+            })
+            .as_ref()
+            .unwrap();
+
+        let scale = |x: f64| (x + 1.0) * 25.0;
+        let posn_shift_x = scale(((tick as f64) / 25.0).cos());
+        let posn_shift_y = scale(((tick as f64) / 25.0).sin());
+        let posn_x = 400.0 + posn_shift_x;
+        let posn_y = 400.0 + posn_shift_y;
+
+        let size_shift_x = 50.0 + scale(((tick as f64) / 50.0).sin());
+        let size_shift_y = 50.0 + scale(((tick as f64) / 50.0).cos());
+
+        render_context.draw_image(
+            image_handle,
+            Rect::new(posn_x, posn_y, posn_x + size_shift_x, posn_y + size_shift_y),
+            piet::InterpolationMode::Bilinear,
+        );
+
+        // Also draw a subregion of the image.
+        let out_rect = Rect::new(100.0, 400.0, 200.0, 500.0);
+        render_context.draw_image_area(
+            image_handle,
+            Rect::new(
+                25.0 + posn_shift_x,
+                25.0 + posn_shift_y,
+                75.0 + posn_shift_x,
+                75.0 + posn_shift_y,
+            ),
+            out_rect,
+            piet::InterpolationMode::Bilinear,
+        );
+        render_context.stroke(out_rect, stroke_brush, 3.0);
 
         // Propogate any errors.
         tick += 1;

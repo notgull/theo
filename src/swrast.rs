@@ -325,8 +325,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         convert_shape(&mut builder, shape, tolerance, None);
         let path = leap!(self, builder.finish(), "Failed to build path");
 
-        buffer
-            .fill_path(&path, &paint, fill_rule, transform, state.clip.as_ref());
+        buffer.fill_path(&path, &paint, fill_rule, transform, state.clip.as_ref());
 
         self.display.cache_path_builder(path.clear());
         self.dirty = true;
@@ -412,8 +411,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         };
 
         // Draw the path.
-        buffer
-            .stroke_path(&path, &paint, &stroke, transform, state.clip.as_ref());        
+        buffer.stroke_path(&path, &paint, &stroke, transform, state.clip.as_ref());
 
         self.display.cache_path_builder(path.clear());
         self.dirty = true;
@@ -575,6 +573,40 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                 buf.to_vec()
             }
 
+            ImageFormat::RgbaSeparate => {
+                let mut buffer = buf.to_vec();
+
+                // We need to premultiply the colors.
+                let colors = bytemuck::cast_slice_mut::<u8, [u8; 4]>(&mut buffer);
+                colors.iter_mut().for_each(|color| {
+                    let [r, g, b, a] = *color;
+                    let ts_color = tiny_skia::ColorU8::from_rgba(r, g, b, a);
+                    let premul = ts_color.premultiply();
+                    let [r, g, b, a] =
+                        [premul.red(), premul.green(), premul.blue(), premul.alpha()];
+                    *color = [r, g, b, a];
+                });
+
+                buffer
+            }
+
+            ImageFormat::Rgb => {
+                // Add an alpha channel for every pixel.
+                bytemuck::cast_slice::<u8, [u8; 3]>(buf)
+                    .iter()
+                    .map(|[r, g, b]| tiny_skia::ColorU8::from_rgba(*r, *g, *b, 0xFF).premultiply())
+                    .flat_map(|color| [color.red(), color.green(), color.blue(), color.alpha()])
+                    .collect()
+            }
+
+            ImageFormat::Grayscale => {
+                // Add an alpha channel for every pixel.
+                buf.iter()
+                    .map(|&v| tiny_skia::ColorU8::from_rgba(v, v, v, 0xFF).premultiply())
+                    .flat_map(|color| [color.red(), color.green(), color.blue(), color.alpha()])
+                    .collect()
+            }
+
             _ => {
                 return Err(Error::NotSupported);
             }
@@ -609,16 +641,17 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         // Create a transform to scale the image to the correct size.
         let transform = convert_transform(
             Affine::translate((src_rect.x0, src_rect.y0))
+                * Affine::translate((dst_rect.x0, dst_rect.y0))
                 * Affine::scale_non_uniform(
-                    src_rect.width() / dst_rect.width(),
-                    src_rect.height() / dst_rect.height(),
+                    dst_rect.width() / src_rect.width(),
+                    dst_rect.height() / src_rect.height(),
                 ),
         );
 
         // Create a pattern.
         let pattern = tiny_skia::Pattern::new(
             image.0.as_ref(),
-            tiny_skia::SpreadMode::Pad,
+            tiny_skia::SpreadMode::Repeat,
             match interp {
                 InterpolationMode::NearestNeighbor => tiny_skia::FilterQuality::Nearest,
                 InterpolationMode::Bilinear => tiny_skia::FilterQuality::Bilinear,
