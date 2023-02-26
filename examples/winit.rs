@@ -28,7 +28,7 @@ fn main() -> ! {
 
     // Create the display.
     let mut display = {
-        let mut display = Display::builder().transparent(true);
+        let mut display = Display::builder();
 
         // Uncomment this to force software rendering.
         //display = display.force_swrast(true);

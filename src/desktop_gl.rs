@@ -134,7 +134,7 @@ impl Display {
         // Create a template for the config.
         let mut template_chooser = ConfigTemplateBuilder::new()
             .with_alpha_size(8)
-            .with_transparency(cfg!(target_vendor = "apple"));
+            .with_transparency(cfg!(target_vendor = "apple") || builder.transparent);
 
         if let Some(window) = builder.window {
             template_chooser = template_chooser.compatible_with_native_window(window);
@@ -147,14 +147,15 @@ impl Display {
 
         // Get the config that matches our transparency support and has the most samples.
         let config = config_list
-            .max_by_key(|config| {
-                let mut score = config.num_samples() as u16;
+            .reduce(|accum, config| {
+                let transparency_check = config.supports_transparency().unwrap_or(false)
+                    & !accum.supports_transparency().unwrap_or(false);
 
-                if config.supports_transparency() == Some(builder.transparent) {
-                    score += 1_000;
+                if transparency_check || config.num_samples() > accum.num_samples() {
+                    config
+                } else {
+                    accum
                 }
-
-                score
             })
             .ok_or_else(|| Error::BackendError("No matching configs found".into()))?;
 
