@@ -59,8 +59,10 @@ std::thread_local! {
 }
 
 /// An error handler for GLX.
-pub type XlibErrorHookRegistrar =
-    Box<dyn Fn(Box<dyn Fn(*mut c_void, *mut c_void) -> bool + Send + Sync>)>;
+pub type XlibErrorHook = Box<dyn Fn(*mut c_void, *mut c_void) -> bool + Send + Sync>;
+
+/// An error handler for GLX.
+type XlibErrorHookRegistrar = Box<dyn Fn(XlibErrorHook)>;
 
 /// A builder containing system-specific information.
 pub struct DisplayBuilder {
@@ -108,8 +110,8 @@ impl DisplayBuilder {
     }
 
     /// Set the error handler for GLX.
-    pub fn glx_error_hook(mut self, hook: XlibErrorHookRegistrar) -> Self {
-        self.glx_error_hook = Some(hook);
+    pub fn glx_error_hook(mut self, hook: impl Fn(XlibErrorHook) + 'static) -> Self {
+        self.glx_error_hook = Some(Box::new(hook));
         self
     }
 
@@ -358,6 +360,7 @@ macro_rules! make_dispatch {
                 $(
                     match <$display>::new(&mut self, raw) {
                         Ok(display) => {
+                            tracing::trace!("Created `{}` display", stringify!($name));
                             return Ok(DisplayDispatch::$name(display).into());
                         },
 
@@ -777,14 +780,6 @@ macro_rules! make_dispatch {
 }
 
 make_dispatch! {
-    SwRast(
-        swrast::Display,
-        swrast::Surface,
-        swrast::RenderContext<'dsp, 'surf>,
-        swrast::Brush,
-        swrast::Image
-    ),
-
     #[cfg(all(feature = "gl", not(target_family = "wasm")))]
     DesktopGl(
         desktop_gl::Display,
@@ -792,6 +787,14 @@ make_dispatch! {
         desktop_gl::RenderContext<'dsp, 'surf>,
         piet_glow::Brush<glow::Context>,
         piet_glow::Image<glow::Context>
+    ),
+
+    SwRast(
+        swrast::Display,
+        swrast::Surface,
+        swrast::RenderContext<'dsp, 'surf>,
+        swrast::Brush,
+        swrast::Image
     ),
 }
 

@@ -553,8 +553,8 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         // tiny-skia uses an RGBA format, while softbuffer uses XRGB. To convert, we need to
         // iterate over the pixels and shift the pixels over.
         self.surface.buffer.iter_mut().for_each(|pixel| {
-            let bytes = pixel.to_ne_bytes();
-            *pixel = u32::from_ne_bytes([bytes[1], bytes[2], bytes[3], 0xff]);
+            let [r, g, b, _] = pixel.to_ne_bytes();
+            *pixel = (b as u32) | ((g as u32) << 8) | ((r as u32) << 16);
         });
 
         // Upload the buffer.

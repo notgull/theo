@@ -35,3 +35,8 @@ wgl = ["gl", "glutin/wgl"]
 
 [build-dependencies]
 cfg_aliases = "0.1.1"
+
+[dev-dependencies]
+env_logger = { version = "0.10.0", default-features = false, features = ["color"] }
+tracing = { version = "0.1.37", features = ["log"] }
+winit = { version = "0.28.1", default-features = false, features = ["x11"] }

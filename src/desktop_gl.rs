@@ -75,7 +75,7 @@ pub(super) struct RenderContext<'dsp, 'surf> {
     inner: piet_glow::RenderContext<'dsp, Context>,
 
     /// The surface.
-    _surface: &'surf mut Surface,
+    surface: &'surf mut Surface,
 
     /// The text renderer.
     text: Text,
@@ -134,7 +134,7 @@ impl Display {
         // Create a template for the config.
         let mut template_chooser = ConfigTemplateBuilder::new()
             .with_alpha_size(8)
-            .with_transparency(builder.transparent);
+            .with_transparency(cfg!(target_vendor = "apple"));
 
         if let Some(window) = builder.window {
             template_chooser = template_chooser.compatible_with_native_window(window);
@@ -311,7 +311,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
             scope,
             text: Text(draw_context.text().clone()),
             inner: draw_context,
-            _surface: surface,
+            surface,
             check_current,
             current_mismatch: Ok(()),
         })
@@ -426,7 +426,16 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
 
     pub(super) fn finish(&mut self) -> Result<(), Error> {
         self.check_current()?;
-        self.inner.finish()
+        self.inner.finish()?;
+
+        // Swap the buffers.
+        // SAFETY: The context is current.
+        self.surface
+            .surface
+            .swap_buffers(self.scope.context())
+            .piet_err()?;
+
+        Ok(())
     }
 
     pub(super) fn transform(&mut self, transform: piet::kurbo::Affine) {
