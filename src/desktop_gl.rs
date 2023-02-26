@@ -121,7 +121,7 @@ impl Display {
 
         #[cfg(all(glx_backend, egl_backend))]
         let _preference = match builder.glx_error_hook.take() {
-            Some(hook) => DisplayApiPreference::EglThenGlx(hook),
+            Some(hook) => DisplayApiPreference::GlxThenEgl(hook),
             None => DisplayApiPreference::Egl,
         };
 
@@ -201,17 +201,26 @@ impl Display {
     }
 
     pub(super) fn x11_visual(&self) -> Option<NonNull<()>> {
-        // TODO: This seems to be broken for now.
-        /*
         #[cfg(x11_platform)]
         {
             use glutin::platform::x11::X11GlConfigExt;
+
+            // This seems to be broken for EGL, so we'll just return None.
+            #[cfg(not(egl_backend))]
+            let skip = true;
+
+            #[cfg(egl_backend)]
+            let skip = matches!(self.display, GlutinDisplay::Egl(..));
+
+            if skip {
+                return None;
+            }
+
             return self
                 .config
                 .x11_visual()
                 .and_then(|x| NonNull::new(x.into_raw() as *mut _));
         }
-        */
 
         #[allow(unreachable_code)]
         None
