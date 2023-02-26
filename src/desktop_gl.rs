@@ -201,6 +201,8 @@ impl Display {
     }
 
     pub(super) fn x11_visual(&self) -> Option<NonNull<()>> {
+        // TODO: This seems to be broken for now.
+        /*
         #[cfg(x11_platform)]
         {
             use glutin::platform::x11::X11GlConfigExt;
@@ -209,6 +211,7 @@ impl Display {
                 .x11_visual()
                 .and_then(|x| NonNull::new(x.into_raw() as *mut _));
         }
+        */
 
         #[allow(unreachable_code)]
         None

@@ -325,12 +325,8 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         convert_shape(&mut builder, shape, tolerance, None);
         let path = leap!(self, builder.finish(), "Failed to build path");
 
-        if buffer
-            .fill_path(&path, &paint, fill_rule, transform, state.clip.as_ref())
-            .is_none()
-        {
-            self.last_error = Err(Error::BackendError("Failed to fill path".into()));
-        }
+        buffer
+            .fill_path(&path, &paint, fill_rule, transform, state.clip.as_ref());
 
         self.display.cache_path_builder(path.clear());
         self.dirty = true;
@@ -416,12 +412,8 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         };
 
         // Draw the path.
-        if buffer
-            .stroke_path(&path, &paint, &stroke, transform, state.clip.as_ref())
-            .is_none()
-        {
-            self.last_error = Err(Error::BackendError("Failed to stroke path".into()));
-        }
+        buffer
+            .stroke_path(&path, &paint, &stroke, transform, state.clip.as_ref());        
 
         self.display.cache_path_builder(path.clear());
         self.dirty = true;

@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use piet::RenderContext as _;
+use piet::kurbo::{BezPath, Point, Affine};
 use theo::{Display, RenderContext};
 
 use winit::dpi::LogicalSize;
@@ -64,6 +65,54 @@ fn main() -> ! {
         millis_per_frame as u64
     });
     let mut next_frame = Instant::now() + framerate;
+
+    // Consistent drawing properties.
+    let star = generate_five_pointed_star(
+        (0.0, 0.0).into(),
+        75.0,
+        150.0
+    ); 
+    let mut fill_brush = None;
+    let mut stroke_brush = None;
+    let mut tick = 0;
+
+    // Function for drawing, called every frame.
+    let mut draw = move |render_context: &mut RenderContext<'_, '_>| {
+        use piet::Color;
+
+        // Clear the screen.
+        render_context.clear(None, Color::SILVER);
+
+        // Fill in the star.
+        let fill_brush = fill_brush.get_or_insert_with(|| {
+            render_context.solid_brush(Color::RED)
+        });
+
+        let rotation = {
+            let angle_rad = (tick as f64) * 0.02;
+            Affine::rotate(angle_rad)
+        };
+        let translation = Affine::translate((200.0, 200.0));
+
+        render_context.with_save(|render_context| {
+            render_context.transform(translation * rotation);
+            render_context.fill(&star, fill_brush);
+
+            // Stroke the star.
+            let stroke_brush = stroke_brush.get_or_insert_with(|| {
+                render_context.solid_brush(Color::BLACK)
+            });
+
+            render_context.stroke(&star, stroke_brush, 5.0);
+
+            Ok(())
+        })?;
+
+        // Propogate any errors.
+        tick += 1;
+        render_context.finish()?;
+        render_context.status()
+    };
 
     event_loop.run(move |event, elwt, control_flow| {
         control_flow.set_wait_until(next_frame);
@@ -134,12 +183,34 @@ fn main() -> ! {
     });
 }
 
-fn draw(render_context: &mut RenderContext<'_, '_>) -> Result<(), piet::Error> {
-    use piet::Color;
+fn generate_five_pointed_star(center: Point, inner_radius: f64, outer_radius: f64) -> BezPath {
+    let point_from_polar = |radius: f64, angle: f64| {
+        let x = center.x + radius * angle.cos();
+        let y = center.y + radius * angle.sin();
+        Point::new(x, y)
+    };
 
-    render_context.clear(None, Color::TRANSPARENT);
+    let one_fifth_circle = std::f64::consts::PI * 2.0 / 5.0;
 
-    // Propogate any errors.
-    render_context.finish()?;
-    render_context.status()
+    let outer_points = (0..5).map(|i| point_from_polar(outer_radius, one_fifth_circle * i as f64));
+    let inner_points = (0..5).map(|i| {
+        point_from_polar(
+            inner_radius,
+            one_fifth_circle * i as f64 + one_fifth_circle / 2.0,
+        )
+    });
+    let mut points = outer_points.zip(inner_points).flat_map(|(a, b)| [a, b]);
+
+    // Set up the path.
+    let mut path = BezPath::new();
+    path.move_to(points.next().unwrap());
+
+    // Add the points to the path.
+    for point in points {
+        path.line_to(point);
+    }
+
+    // Close the path.
+    path.close_path();
+    path
 }
