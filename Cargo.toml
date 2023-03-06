@@ -8,12 +8,12 @@ description = "A standalone renderer for windowing graphics"
 
 [dependencies]
 ab_glyph = "0.2.20"
-bytemuck = { version = "1.13.0", default-features = false }
+bytemuck = { version = "1.13.1", default-features = false }
 cosmic-text = { version = "0.7.0", default-features = false, features = ["std"] }
 glow = { version = "0.12.1", optional = true }
 piet = { version = "0.6.2", default-features = false }
 piet-cosmic-text = "0.1.1"
-piet-glow = { git = "https://github.com/notgull/piet-glow.git", version = "0.1.0" }
+piet-glow = { version = "0.1.0" }
 raw-window-handle = "0.5.0"
 softbuffer = { git = "https://github.com/rust-windowing/softbuffer", version = "0.2.0" }
 tiny-skia = { version = "0.8.3", default-features = false, features = ["std"] }

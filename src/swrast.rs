@@ -169,7 +169,10 @@ impl Display {
         let context = Context::from_raw(raw).piet_err()?;
         Ok(Self {
             context,
-            text: Text(piet_cosmic_text::Text::new()),
+            text: Text({
+                let text = piet_cosmic_text::Text::new();
+                super::text::TextInner::Cosmic(text)
+            }),
             path_builder: PathBuilder::new(),
             glyph_cache: HashMap::new(),
         })
@@ -466,8 +469,15 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         let (display, mut buffer, state, ..) = self.drawing_parts();
         let pos = pos.into();
 
+        let layout = match layout.0 {
+            super::text::TextLayoutInner::Cosmic(ref layout) => layout,
+            _ => {
+                tracing::warn!("TextLayout was not created by this backend");
+                return;
+            }
+        };
+
         for (glyph, y_start) in layout
-            .0
             .layout_runs()
             .flat_map(|run| run.glyphs.iter().map(move |glyph| (glyph, run.line_y)))
         {
@@ -479,12 +489,17 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                 Entry::Occupied(o) => o.into_mut(),
                 Entry::Vacant(v) => {
                     let font = layout
-                        .0
                         .buffer()
                         .font_system()
                         .get_font(glyph.cache_key.font_id)
                         .expect("Font not found");
-                    let pixmap = leap!(self, rasterize_glyph(&font, glyph.cache_key, color));
+                    let pixmap = match rasterize_glyph(&font, glyph.cache_key, color) {
+                        Ok(pixmap) => pixmap,
+                        Err(e) => {
+                            tracing::trace!("Failed to rasterize glyph: {}", e);
+                            continue;
+                        }
+                    };
                     v.insert(pixmap)
                 }
             };
@@ -758,8 +773,7 @@ fn rasterize_glyph(
     let outlined = match font_ref.outline_glyph(glyph) {
         Some(outlined) => outlined,
         None => {
-            // TODO
-            return Err(Error::Unimplemented);
+            return Err(Error::FontLoadingFailed);
         }
     };
 

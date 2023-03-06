@@ -2,8 +2,8 @@
 
 use std::time::{Duration, Instant};
 
-use piet::kurbo::{Affine, BezPath, Point, Rect};
-use piet::RenderContext as _;
+use piet::kurbo::{Affine, BezPath, Point, Rect, Vec2};
+use piet::{FontFamily, GradientStop, RenderContext as _, Text, TextLayoutBuilder};
 use theo::{Display, RenderContext};
 
 use winit::dpi::LogicalSize;
@@ -68,10 +68,17 @@ fn main() -> ! {
 
     // Consistent drawing properties.
     let star = generate_five_pointed_star((0.0, 0.0).into(), 75.0, 150.0);
+
     let mut fill_brush = None;
     let mut stroke_brush = None;
+    let mut radial_gradient = None;
+    let mut linear_gradient = None;
     let mut tick = 0;
     let mut image_handle = None;
+
+    let mut last_second = Instant::now();
+    let mut num_frames = 0;
+    let mut current_fps = None;
 
     // Get the test image at $CRATE_ROOT/examples/assets/test-image.png
     let manifest_root = env!("CARGO_MANIFEST_DIR");
@@ -87,10 +94,59 @@ fn main() -> ! {
         // Clear the screen.
         render_context.clear(None, Color::rgb8(0x87, 0xce, 0xeb));
 
-        // Fill in the star.
+        // Make the brushes.
         let fill_brush = fill_brush.get_or_insert_with(|| render_context.solid_brush(Color::RED));
         let stroke_brush =
             stroke_brush.get_or_insert_with(|| render_context.solid_brush(Color::BLACK));
+        let radial_gradient = radial_gradient.get_or_insert_with(|| {
+            let grad = piet::FixedRadialGradient {
+                center: Point::new(0.0, 0.0),
+                origin_offset: Vec2::new(0.0, 0.0),
+                radius: 150.0,
+                stops: vec![
+                    GradientStop {
+                        pos: 0.0,
+                        color: piet::Color::LIME,
+                    },
+                    GradientStop {
+                        pos: 0.5,
+                        color: piet::Color::MAROON,
+                    },
+                    GradientStop {
+                        pos: 1.0,
+                        color: piet::Color::NAVY,
+                    },
+                ],
+            };
+
+            render_context.gradient(grad).unwrap()
+        });
+        let linear_gradient = linear_gradient.get_or_insert_with(|| {
+            const RAINBOW: &[piet::Color] = &[
+                piet::Color::RED,
+                piet::Color::rgb8(0xff, 0x7f, 0x00),
+                piet::Color::YELLOW,
+                piet::Color::GREEN,
+                piet::Color::BLUE,
+                piet::Color::rgb8(0x4b, 0x00, 0x82),
+                piet::Color::rgb8(0x94, 0x00, 0xd3),
+            ];
+
+            let grad = piet::FixedLinearGradient {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(50.0, 150.0),
+                stops: RAINBOW
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &color)| GradientStop {
+                        pos: i as f32 / (RAINBOW.len() - 1) as f32,
+                        color,
+                    })
+                    .collect(),
+            };
+
+            render_context.gradient(grad).unwrap()
+        });
 
         let rotation = {
             let angle_rad = (tick as f64) * 0.02;
@@ -101,6 +157,23 @@ fn main() -> ! {
         render_context.with_save(|render_context| {
             render_context.transform(translation * rotation);
             render_context.fill(&star, fill_brush);
+
+            // Stroke the star.
+            render_context.stroke(&star, stroke_brush, 5.0);
+
+            Ok(())
+        })?;
+
+        let translation = Affine::translate((550.0, 200.0));
+        let rotation = {
+            let angle_rad = (tick as f64) * 0.04;
+            Affine::rotate(angle_rad)
+        };
+        let scaling = Affine::scale(0.75);
+
+        render_context.with_save(|render_context| {
+            render_context.transform(translation * rotation * scaling);
+            render_context.fill(&star, radial_gradient);
 
             // Stroke the star.
             render_context.stroke(&star, stroke_brush, 5.0);
@@ -150,6 +223,47 @@ fn main() -> ! {
             piet::InterpolationMode::Bilinear,
         );
         render_context.stroke(out_rect, stroke_brush, 3.0);
+
+        // Draw a linear gradient.
+        let rect = Rect::new(0.0, 0.0, 50.0, 150.0);
+        render_context
+            .with_save(|render_context| {
+                let transform = Affine::translate((450.0, 450.0));
+                render_context.transform(transform);
+
+                // Draw the gradient.
+                render_context.fill(rect, linear_gradient);
+
+                // Draw a border.
+                render_context.stroke(rect, stroke_brush, 5.0);
+
+                Ok(())
+            })
+            .unwrap();
+
+        // Update the FPS counter.
+        num_frames += 1;
+        let now = Instant::now();
+        if now - last_second >= Duration::from_secs(1) {
+            let fps_string = format!("Frames per Second: {num_frames}");
+            let fps_text = render_context
+                .text()
+                .new_text_layout(fps_string)
+                .font(FontFamily::SERIF, 24.0)
+                .text_color(piet::Color::rgb8(0x11, 0x22, 0x22))
+                .build()
+                .unwrap();
+
+            current_fps = Some(fps_text);
+
+            num_frames = 0;
+            last_second = now;
+        }
+
+        // Draw the FPS counter.
+        if let Some(fps_text) = &current_fps {
+            render_context.draw_text(fps_text, Point::new(10.0, 10.0));
+        }
 
         // Propogate any errors.
         tick += 1;

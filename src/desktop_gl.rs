@@ -20,6 +20,7 @@
 //! We use `piet-glow` as the main rendering backend, and `glutin` to set up the `glow`
 //! context.
 
+use super::text::{TextInner, TextLayoutInner};
 use super::{DisplayBuilder, Error, ResultExt, Text, TextLayout};
 
 use glutin::config::{Config, ConfigTemplateBuilder};
@@ -318,11 +319,11 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
 
         // Create a draw context on top of that.
         // SAFETY: The context is current.
-        let mut draw_context = unsafe { piet_glow::RenderContext::new(renderer, width, height) };
+        let mut draw_context = unsafe { renderer.render_context(width, height) };
 
         Ok(Self {
             scope,
-            text: Text(draw_context.text().clone()),
+            text: Text(TextInner::Glow(draw_context.text().clone())),
             inner: draw_context,
             surface,
             check_current,
@@ -424,7 +425,13 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         if self.not_current() {
             return;
         }
-        self.inner.draw_text(&layout.0, pos)
+        let layout = match layout.0 {
+            TextLayoutInner::Glow(ref layout) => layout,
+            _ => {
+                panic!("TextLayout was not created by this backend")
+            }
+        };
+        self.inner.draw_text(layout, pos)
     }
 
     pub(super) fn save(&mut self) -> Result<(), Error> {
