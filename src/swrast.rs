@@ -32,7 +32,7 @@ use piet::{
 use cosmic_text::{CacheKey, Color as CosmicColor, Font};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use softbuffer::{Context, Surface as SoftbufferSurface};
-use tiny_skia::{ClipMask, ColorU8, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader};
+use tiny_skia::{ClipMask, ColorU8, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader, PremultipliedColorU8};
 use tinyvec::TinyVec;
 
 use std::collections::hash_map::{Entry, HashMap};
@@ -51,7 +51,15 @@ pub(super) struct Display {
     path_builder: PathBuilder,
 
     /// Map between cache keys and cached glyphs.
-    glyph_cache: HashMap<(CacheKey, CosmicColor), Pixmap>,
+    glyph_cache: HashMap<(CacheKey, CosmicColor), GlyphInfo>,
+}
+
+struct GlyphInfo {
+    /// The rasterized glyph.
+    rasterized: Pixmap,
+
+    /// The offset of the glyph.
+    offset: Point,
 }
 
 /// The surface for the software rasterizer.
@@ -493,7 +501,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                         .font_system()
                         .get_font(glyph.cache_key.font_id)
                         .expect("Font not found");
-                    let pixmap = match rasterize_glyph(&font, glyph.cache_key, color) {
+                    let (pixmap, offset) = match rasterize_glyph(&font, glyph.cache_key, color) {
                         Ok(pixmap) => pixmap,
                         Err(e) => {
                             tracing::trace!(
@@ -504,12 +512,15 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                             continue;
                         }
                     };
-                    v.insert(pixmap)
+                    v.insert(GlyphInfo {
+                        rasterized: pixmap,
+                        offset,
+                    })
                 }
             };
 
             let pattern = tiny_skia::Pattern::new(
-                rasterized.as_ref(),
+                rasterized.rasterized.as_ref(),
                 tiny_skia::SpreadMode::Pad,
                 tiny_skia::FilterQuality::Bilinear,
                 1.0,
@@ -517,8 +528,9 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
             );
 
             // Compute the position of the glyph.
-            let x = glyph.x_int + pos.x as i32;
-            let y = glyph.y_int + y_start + pos.y as i32;
+            let x = glyph.x_int + pos.x as i32 + rasterized.offset.x as i32;
+            let y = glyph.y_int + y_start + pos.y as i32 + rasterized.offset.y as i32;
+            let width = glyph.w as i32;
 
             let paint = Paint {
                 shader: pattern,
@@ -532,7 +544,10 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                 buffer.fill_rect(
                     convert_rect(Rect::from_origin_size(
                         (x as f64, y as f64),
-                        (rasterized.width() as f64, rasterized.height() as f64),
+                        (
+                            rasterized.rasterized.width() as f64,
+                            rasterized.rasterized.height() as f64
+                        ),
                     ))
                     .unwrap(),
                     &paint,
@@ -760,7 +775,7 @@ fn rasterize_glyph(
     face: &Font<'_>,
     glyph_key: CacheKey,
     color: CosmicColor,
-) -> Result<Pixmap, Error> {
+) -> Result<(Pixmap, Point), Error> {
     use ab_glyph::Font;
 
     // Set up a rasterizer.
@@ -770,7 +785,6 @@ fn rasterize_glyph(
     // Get the scaled glyph.
     let glyph = ab_glyph::GlyphId(glyph_key.glyph_id).with_scale(glyph_key.font_size as f32);
     let [r, g, b, a] = [color.r(), color.g(), color.b(), color.a()];
-
     let color = ColorU8::from_rgba(r, g, b, a);
 
     // Outline the glyph.
@@ -782,11 +796,10 @@ fn rasterize_glyph(
     };
 
     // Create a pixmap.
-    let width = outlined.glyph().scale.x as u32;
-    let height = outlined.glyph().scale.y as u32;
+    let bounds = outlined.px_bounds();
+    let (width, height) = (bounds.width() as u32, bounds.height() as u32);
 
     let mut pixmap = Pixmap::new(width, height).expect("Bounds should never be zero");
-    let width = pixmap.width();
     let pixels = pixmap.pixels_mut();
 
     // Rasterize the glyph.
@@ -796,7 +809,7 @@ fn rasterize_glyph(
                 color.red(),
                 color.green(),
                 color.blue(),
-                (color.alpha() as f32 * c) as u8,
+                (c * 255.0) as u8,
             )
         };
 
@@ -804,7 +817,10 @@ fn rasterize_glyph(
         pixels[index] = color.premultiply();
     });
 
-    Ok(pixmap)
+    Ok((
+        pixmap,
+        Point::new(bounds.min.x as f64, (bounds.min.y + bounds.height()) as f64),
+    ))
 }
 
 fn convert_transform(affine: Affine) -> tiny_skia::Transform {
