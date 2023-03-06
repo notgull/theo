@@ -32,7 +32,7 @@ use piet::{
 use cosmic_text::{CacheKey, Color as CosmicColor, Font};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use softbuffer::{Context, Surface as SoftbufferSurface};
-use tiny_skia::{ClipMask, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader};
+use tiny_skia::{ClipMask, ColorU8, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader};
 use tinyvec::TinyVec;
 
 use std::collections::hash_map::{Entry, HashMap};
@@ -496,7 +496,11 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                     let pixmap = match rasterize_glyph(&font, glyph.cache_key, color) {
                         Ok(pixmap) => pixmap,
                         Err(e) => {
-                            tracing::trace!("Failed to rasterize glyph: {}", e);
+                            tracing::trace!(
+                                "Failed to rasterize glyph {}: {}",
+                                glyph.cache_key.glyph_id,
+                                e
+                            );
                             continue;
                         }
                     };
@@ -595,7 +599,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                 let colors = bytemuck::cast_slice_mut::<u8, [u8; 4]>(&mut buffer);
                 colors.iter_mut().for_each(|color| {
                     let [r, g, b, a] = *color;
-                    let ts_color = tiny_skia::ColorU8::from_rgba(r, g, b, a);
+                    let ts_color = ColorU8::from_rgba(r, g, b, a);
                     let premul = ts_color.premultiply();
                     let [r, g, b, a] =
                         [premul.red(), premul.green(), premul.blue(), premul.alpha()];
@@ -609,7 +613,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                 // Add an alpha channel for every pixel.
                 bytemuck::cast_slice::<u8, [u8; 3]>(buf)
                     .iter()
-                    .map(|[r, g, b]| tiny_skia::ColorU8::from_rgba(*r, *g, *b, 0xFF).premultiply())
+                    .map(|[r, g, b]| ColorU8::from_rgba(*r, *g, *b, 0xFF).premultiply())
                     .flat_map(|color| [color.red(), color.green(), color.blue(), color.alpha()])
                     .collect()
             }
@@ -617,7 +621,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
             ImageFormat::Grayscale => {
                 // Add an alpha channel for every pixel.
                 buf.iter()
-                    .map(|&v| tiny_skia::ColorU8::from_rgba(v, v, v, 0xFF).premultiply())
+                    .map(|&v| ColorU8::from_rgba(v, v, v, 0xFF).premultiply())
                     .flat_map(|color| [color.red(), color.green(), color.blue(), color.alpha()])
                     .collect()
             }
@@ -655,7 +659,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
     ) {
         // Create a transform to scale the image to the correct size.
         let transform = convert_transform(
-            Affine::translate((src_rect.x0, src_rect.y0))
+            Affine::translate((-src_rect.x0, -src_rect.y0))
                 * Affine::translate((dst_rect.x0, dst_rect.y0))
                 * Affine::scale_non_uniform(
                     dst_rect.width() / src_rect.width(),
@@ -767,7 +771,7 @@ fn rasterize_glyph(
     let glyph = ab_glyph::GlyphId(glyph_key.glyph_id).with_scale(glyph_key.font_size as f32);
     let [r, g, b, a] = [color.r(), color.g(), color.b(), color.a()];
 
-    let color = tiny_skia::ColorU8::from_rgba(r, g, b, a);
+    let color = ColorU8::from_rgba(r, g, b, a);
 
     // Outline the glyph.
     let outlined = match font_ref.outline_glyph(glyph) {
@@ -788,7 +792,7 @@ fn rasterize_glyph(
     // Rasterize the glyph.
     outlined.draw(|x, y, c| {
         let color = {
-            tiny_skia::ColorU8::from_rgba(
+            ColorU8::from_rgba(
                 color.red(),
                 color.green(),
                 color.blue(),

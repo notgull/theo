@@ -31,7 +31,7 @@ fn main() -> ! {
         let mut display = Display::builder();
 
         // Uncomment this to force software rendering.
-        //display = display.force_swrast(true);
+        display = display.force_swrast(true);
 
         // On Windows, we should set up a window first. Otherwise, the GL features
         // we want to use won't be available.
@@ -228,7 +228,7 @@ fn main() -> ! {
         let rect = Rect::new(0.0, 0.0, 50.0, 150.0);
         render_context
             .with_save(|render_context| {
-                let transform = Affine::translate((450.0, 450.0));
+                let transform = Affine::translate((650.0, 275.0));
                 render_context.transform(transform);
 
                 // Draw the gradient.
@@ -320,6 +320,10 @@ fn main() -> ! {
             } => control_flow.set_exit(),
 
             Event::RedrawEventsCleared => {
+                if Instant::now() < next_frame {
+                    return;
+                }
+
                 // Use the surface to draw.
                 if let Some((window, surface)) = &mut state {
                     let size = window.inner_size();
