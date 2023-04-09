@@ -9,13 +9,13 @@ description = "A standalone renderer for windowing graphics"
 [dependencies]
 ab_glyph = "0.2.20"
 bytemuck = { version = "1.13.1", default-features = false }
-cosmic-text = { version = "0.7.0", default-features = false, features = ["std"] }
+cosmic-text = { version = "0.8.0", default-features = false, features = ["std"] }
 glow = { version = "0.12.1", optional = true }
 piet = { version = "0.6.2", default-features = false }
-piet-cosmic-text = "0.1.1"
+piet-cosmic-text = "0.2.0"
 piet-glow = { version = "0.1.0" }
 raw-window-handle = "0.5.0"
-softbuffer = { git = "https://github.com/rust-windowing/softbuffer", version = "0.2.0" }
+softbuffer = "0.2.0"
 tiny-skia = { version = "0.8.3", default-features = false, features = ["std"] }
 tiny-skia-path = "0.8.3"
 tinyvec = { version = "1.6.0", default-features = false, features = ["alloc"] }
@@ -38,6 +38,6 @@ cfg_aliases = "0.1.1"
 
 [dev-dependencies]
 env_logger = { version = "0.10.0", default-features = false, features = ["color"] }
-image = "0.24.5"
+image = { version = "0.24.5", default-features = false, features = ["png"] }
 tracing = { version = "0.1.37", features = ["log"] }
 winit = { version = "0.28.1", default-features = false, features = ["x11"] }

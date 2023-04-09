@@ -29,10 +29,10 @@ use piet::{
     LineCap, LineJoin, StrokeStyle,
 };
 
-use cosmic_text::{CacheKey, Color as CosmicColor, Font};
+use cosmic_text::{CacheKey, Color as CosmicColor, Font, FontSystem};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
-use softbuffer::{Context, Surface as SoftbufferSurface};
-use tiny_skia::{ClipMask, ColorU8, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader, PremultipliedColorU8};
+use softbuffer::GraphicsContext;
+use tiny_skia::{ClipMask, ColorU8, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader};
 use tinyvec::TinyVec;
 
 use std::collections::hash_map::{Entry, HashMap};
@@ -41,8 +41,8 @@ use std::ptr::NonNull;
 
 /// The display for the software rasterizer.
 pub(super) struct Display {
-    /// The software rasterizer context.
-    context: Context,
+    /// The raw display handle.
+    raw: RawDisplayHandle,
 
     /// The text backend.
     text: Text,
@@ -65,7 +65,7 @@ struct GlyphInfo {
 /// The surface for the software rasterizer.
 pub(super) struct Surface {
     /// The software rasterizer surface.
-    surface: SoftbufferSurface,
+    surface: GraphicsContext,
 
     /// The buffer that we use for rendering.
     buffer: Vec<u32>,
@@ -174,9 +174,8 @@ impl Display {
         _builder: &mut DisplayBuilder,
         raw: RawDisplayHandle,
     ) -> Result<Self, Error> {
-        let context = Context::from_raw(raw).piet_err()?;
         Ok(Self {
-            context,
+            raw,
             text: Text({
                 let text = piet_cosmic_text::Text::new();
                 super::text::TextInner::Cosmic(text)
@@ -192,7 +191,7 @@ impl Display {
         _width: u32,
         _height: u32,
     ) -> Result<Surface, Error> {
-        let surface = SoftbufferSurface::from_raw(&self.context, raw).piet_err()?;
+        let surface = unsafe { GraphicsContext::from_raw(raw, self.raw) }.piet_err()?;
 
         Ok(Surface {
             surface,
@@ -496,12 +495,15 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
             let rasterized = match display.glyph_cache.entry((glyph.cache_key, color)) {
                 Entry::Occupied(o) => o.into_mut(),
                 Entry::Vacant(v) => {
-                    let font = layout
-                        .buffer()
-                        .font_system()
-                        .get_font(glyph.cache_key.font_id)
-                        .expect("Font not found");
-                    let (pixmap, offset) = match rasterize_glyph(&font, glyph.cache_key, color) {
+                    let raster_result =
+                        display.text.as_inner().with_font_system_mut(|font_system| {
+                            let font = font_system
+                                .get_font(glyph.cache_key.font_id)
+                                .expect("Font not found");
+                            rasterize_glyph(&font, font_system, glyph.cache_key, color)
+                        });
+
+                    let (pixmap, offset) = match raster_result {
                         Ok(pixmap) => pixmap,
                         Err(e) => {
                             tracing::trace!(
@@ -512,6 +514,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                             continue;
                         }
                     };
+
                     v.insert(GlyphInfo {
                         rasterized: pixmap,
                         offset,
@@ -529,8 +532,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
 
             // Compute the position of the glyph.
             let x = glyph.x_int + pos.x as i32 + rasterized.offset.x as i32;
-            let y = glyph.y_int + y_start + pos.y as i32 + rasterized.offset.y as i32;
-            let width = glyph.w as i32;
+            let y = glyph.y_int + y_start as i32 + pos.y as i32 + rasterized.offset.y as i32;
 
             let paint = Paint {
                 shader: pattern,
@@ -772,18 +774,20 @@ impl Image {
 
 /// Rasterize a glyph to a `Pixmap` using `ab_glyph`.
 fn rasterize_glyph(
-    face: &Font<'_>,
+    face: &Font,
+    font_system: &FontSystem,
     glyph_key: CacheKey,
     color: CosmicColor,
 ) -> Result<(Pixmap, Point), Error> {
     use ab_glyph::Font;
 
     // Set up a rasterizer.
-    let font_ref =
-        ab_glyph::FontRef::try_from_slice_and_index(face.data, face.info.index).piet_err()?;
+    let index = font_system.db().face(face.id()).unwrap().index;
+    let font_ref = ab_glyph::FontRef::try_from_slice_and_index(face.data(), index).unwrap();
 
     // Get the scaled glyph.
-    let glyph = ab_glyph::GlyphId(glyph_key.glyph_id).with_scale(glyph_key.font_size as f32);
+    let font_size = f32::from_bits(glyph_key.font_size_bits);
+    let glyph = ab_glyph::GlyphId(glyph_key.glyph_id).with_scale(font_size);
     let [r, g, b, a] = [color.r(), color.g(), color.b(), color.a()];
     let color = ColorU8::from_rgba(r, g, b, a);
 
@@ -804,14 +808,8 @@ fn rasterize_glyph(
 
     // Rasterize the glyph.
     outlined.draw(|x, y, c| {
-        let color = {
-            ColorU8::from_rgba(
-                color.red(),
-                color.green(),
-                color.blue(),
-                (c * 255.0) as u8,
-            )
-        };
+        let color =
+            { ColorU8::from_rgba(color.red(), color.green(), color.blue(), (c * 255.0) as u8) };
 
         let index = (y * width + x) as usize;
         pixels[index] = color.premultiply();

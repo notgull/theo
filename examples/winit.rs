@@ -31,7 +31,7 @@ fn main() -> ! {
         let mut display = Display::builder();
 
         // Uncomment this to force software rendering.
-        display = display.force_swrast(true);
+        //display = display.force_swrast(true);
 
         // On Windows, we should set up a window first. Otherwise, the GL features
         // we want to use won't be available.

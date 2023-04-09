@@ -207,17 +207,6 @@ impl Display {
         {
             use glutin::platform::x11::X11GlConfigExt;
 
-            // This seems to be broken for EGL, so we'll just return None.
-            #[cfg(not(egl_backend))]
-            let skip = true;
-
-            #[cfg(egl_backend)]
-            let skip = matches!(self.display, GlutinDisplay::Egl(..));
-
-            if skip {
-                return None;
-            }
-
             return self
                 .config
                 .x11_visual()

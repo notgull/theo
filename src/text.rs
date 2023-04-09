@@ -27,6 +27,15 @@ use piet_glow::{
 #[derive(Clone)]
 pub struct Text(pub(crate) TextInner);
 
+impl Text {
+    pub(crate) fn as_inner(&self) -> &piet_cosmic_text::Text {
+        match &self.0 {
+            TextInner::Cosmic(inner) => inner,
+            _ => panic!(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) enum TextInner {
     Glow(GlowText),
