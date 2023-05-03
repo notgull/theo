@@ -29,13 +29,12 @@ use piet::{
     LineCap, LineJoin, StrokeStyle,
 };
 
-use cosmic_text::{CacheKey, Color as CosmicColor, Font, FontSystem};
+use cosmic_text::{Color as CosmicColor, SwashCache};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use softbuffer::GraphicsContext;
 use tiny_skia::{ClipMask, ColorU8, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader};
 use tinyvec::TinyVec;
 
-use std::collections::hash_map::{Entry, HashMap};
 use std::mem;
 use std::ptr::NonNull;
 
@@ -50,16 +49,8 @@ pub(super) struct Display {
     /// A cached path builder.
     path_builder: PathBuilder,
 
-    /// Map between cache keys and cached glyphs.
-    glyph_cache: HashMap<(CacheKey, CosmicColor), GlyphInfo>,
-}
-
-struct GlyphInfo {
-    /// The rasterized glyph.
-    rasterized: Pixmap,
-
-    /// The offset of the glyph.
-    offset: Point,
+    /// Cache of rasterized glyphs.
+    glyph_cache: SwashCache,
 }
 
 /// The surface for the software rasterizer.
@@ -181,7 +172,7 @@ impl Display {
                 super::text::TextInner::Cosmic(text)
             }),
             path_builder: PathBuilder::new(),
-            glyph_cache: HashMap::new(),
+            glyph_cache: SwashCache::new(),
         })
     }
 
@@ -473,8 +464,15 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
     }
 
     pub(super) fn draw_text(&mut self, layout: &TextLayout, pos: impl Into<Point>) {
+        let text = self.text().clone();
         let (display, mut buffer, state, ..) = self.drawing_parts();
+
         let pos = pos.into();
+        let x_off = pos.x as usize;
+        let y_off = pos.y as usize;
+        let transform = convert_transform(state.transform);
+
+        let text = text.as_inner();
 
         let layout = match layout.0 {
             super::text::TextLayoutInner::Cosmic(ref layout) => layout,
@@ -484,81 +482,37 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
             }
         };
 
-        for (glyph, y_start) in layout
-            .layout_runs()
-            .flat_map(|run| run.glyphs.iter().map(move |glyph| (glyph, run.line_y)))
-        {
-            // Get the rasterized glyph for this glyph.
-            let color = glyph
-                .color_opt
-                .unwrap_or(CosmicColor::rgba(0x0, 0x0, 0x0, 0xFF));
-            let rasterized = match display.glyph_cache.entry((glyph.cache_key, color)) {
-                Entry::Occupied(o) => o.into_mut(),
-                Entry::Vacant(v) => {
-                    let raster_result =
-                        display.text.as_inner().with_font_system_mut(|font_system| {
-                            let font = font_system
-                                .get_font(glyph.cache_key.font_id)
-                                .expect("Font not found");
-                            rasterize_glyph(&font, font_system, glyph.cache_key, color)
-                        });
+        // Draw the buffer into the pixmap.
+        text.with_font_system_mut(|fs| {
+            layout.buffer().draw(
+                fs,
+                &mut display.glyph_cache,
+                {
+                    let (r, g, b, a) = piet::util::DEFAULT_TEXT_COLOR.as_rgba8();
+                    CosmicColor::rgba(r, g, b, a)
+                },
+                |x, y, w, h, color| {
+                    let ts_color =
+                        tiny_skia::Color::from_rgba8(color.r(), color.g(), color.b(), color.a());
 
-                    let (pixmap, offset) = match raster_result {
-                        Ok(pixmap) => pixmap,
-                        Err(e) => {
-                            tracing::trace!(
-                                "Failed to rasterize glyph {}: {}",
-                                glyph.cache_key.glyph_id,
-                                e
-                            );
-                            continue;
-                        }
-                    };
-
-                    v.insert(GlyphInfo {
-                        rasterized: pixmap,
-                        offset,
-                    })
-                }
-            };
-
-            let pattern = tiny_skia::Pattern::new(
-                rasterized.rasterized.as_ref(),
-                tiny_skia::SpreadMode::Pad,
-                tiny_skia::FilterQuality::Bilinear,
-                1.0,
-                tiny_skia::Transform::identity(),
-            );
-
-            // Compute the position of the glyph.
-            let x = glyph.x_int + pos.x as i32 + rasterized.offset.x as i32;
-            let y = glyph.y_int + y_start as i32 + pos.y as i32 + rasterized.offset.y as i32;
-
-            let paint = Paint {
-                shader: pattern,
-                ..Default::default()
-            };
-
-            // Composite the glyph onto the buffer.
-            let transform = convert_transform(state.transform);
-            leap!(
-                self,
-                buffer.fill_rect(
-                    convert_rect(Rect::from_origin_size(
-                        (x as f64, y as f64),
-                        (
-                            rasterized.rasterized.width() as f64,
-                            rasterized.rasterized.height() as f64
-                        ),
-                    ))
-                    .unwrap(),
-                    &paint,
-                    transform,
-                    state.clip.as_ref(),
-                ),
-                "Failed to draw text"
-            );
-        }
+                    buffer.fill_rect(
+                        tiny_skia::Rect::from_xywh(
+                            x_off as f32 + x as f32,
+                            y_off as f32 + y as f32,
+                            w as f32,
+                            h as f32,
+                        )
+                        .expect("invalid rect"),
+                        &tiny_skia::Paint {
+                            shader: tiny_skia::Shader::SolidColor(ts_color),
+                            ..Default::default()
+                        },
+                        transform,
+                        state.clip.as_ref(),
+                    );
+                },
+            )
+        });
     }
 
     pub(super) fn save(&mut self) -> Result<(), Error> {
@@ -770,55 +724,6 @@ impl Image {
 
         Size::new(width, height)
     }
-}
-
-/// Rasterize a glyph to a `Pixmap` using `ab_glyph`.
-fn rasterize_glyph(
-    face: &Font,
-    font_system: &FontSystem,
-    glyph_key: CacheKey,
-    color: CosmicColor,
-) -> Result<(Pixmap, Point), Error> {
-    use ab_glyph::Font;
-
-    // Set up a rasterizer.
-    let index = font_system.db().face(face.id()).unwrap().index;
-    let font_ref = ab_glyph::FontRef::try_from_slice_and_index(face.data(), index).unwrap();
-
-    // Get the scaled glyph.
-    let font_size = f32::from_bits(glyph_key.font_size_bits);
-    let glyph = ab_glyph::GlyphId(glyph_key.glyph_id).with_scale(font_size);
-    let [r, g, b, a] = [color.r(), color.g(), color.b(), color.a()];
-    let color = ColorU8::from_rgba(r, g, b, a);
-
-    // Outline the glyph.
-    let outlined = match font_ref.outline_glyph(glyph) {
-        Some(outlined) => outlined,
-        None => {
-            return Err(Error::FontLoadingFailed);
-        }
-    };
-
-    // Create a pixmap.
-    let bounds = outlined.px_bounds();
-    let (width, height) = (bounds.width() as u32, bounds.height() as u32);
-
-    let mut pixmap = Pixmap::new(width, height).expect("Bounds should never be zero");
-    let pixels = pixmap.pixels_mut();
-
-    // Rasterize the glyph.
-    outlined.draw(|x, y, c| {
-        let color =
-            { ColorU8::from_rgba(color.red(), color.green(), color.blue(), (c * 255.0) as u8) };
-
-        let index = (y * width + x) as usize;
-        pixels[index] = color.premultiply();
-    });
-
-    Ok((
-        pixmap,
-        Point::new(bounds.min.x as f64, (bounds.min.y + bounds.height()) as f64),
-    ))
 }
 
 fn convert_transform(affine: Affine) -> tiny_skia::Transform {
