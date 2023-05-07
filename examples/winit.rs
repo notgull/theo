@@ -34,6 +34,8 @@ fn main() -> ! {
         // Uncomment this to force software rendering.
         //display = display.force_swrast(true);
 
+        display = display.transparent(false);
+
         // On Windows, we should set up a window first. Otherwise, the GL features
         // we want to use won't be available.
         #[cfg(windows)]
@@ -251,7 +253,7 @@ fn main() -> ! {
                 .text()
                 .new_text_layout(fps_string)
                 .font(FontFamily::SERIF, 24.0)
-                .text_color(piet::Color::rgb8(0x11, 0x22, 0x22))
+                .text_color(piet::Color::BLACK)
                 .build()
                 .unwrap();
 
