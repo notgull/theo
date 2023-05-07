@@ -31,6 +31,9 @@
 //! From here, users should create [`Surface`]s, which represent drawing areas. Finally,
 //! a [`Surface`] can be used to create the [`RenderContext`] type, which is used to draw.
 
+#[cfg(feature = "wgpu")]
+extern crate wgpu0 as wgpu;
+
 #[cfg(feature = "gl")]
 mod desktop_gl;
 mod swrast;
@@ -177,18 +180,24 @@ impl Display {
 
     /// Create a new [`Surface`] from a window.
     ///
+    /// # Asynchronous
+    ///
+    /// This function is asynchronous, as it may be necessary to wait for the window to be
+    /// ready to be drawn to.
+    ///
     /// # Safety
     ///
     /// The `window` handle must be a valid `window` that isn't currently suspended. The
     /// `width` and `height` parameters aren't necessarily required to be correct, but
     /// it's recommended that they are in order to avoid visual bugs.
-    pub unsafe fn make_surface(
+    pub async unsafe fn make_surface(
         &mut self,
         window: impl HasRawWindowHandle,
         width: u32,
         height: u32,
     ) -> Result<Surface, Error> {
         self.make_surface_from_raw(window.raw_window_handle(), width, height)
+            .await
     }
 }
 
@@ -403,10 +412,15 @@ macro_rules! make_dispatch {
 
             /// Create a new [`Surface`] from a raw window handle.
             ///
+            /// # Asynchronous
+            ///
+            /// This function is asynchronous, as it may be necessary to wait for the window to be
+            /// ready to be drawn to.
+            ///
             /// # Safety
             ///
             ///
-            pub unsafe fn make_surface_from_raw(
+            pub async unsafe fn make_surface_from_raw(
                 &mut self,
                 window: RawWindowHandle,
                 width: u32,
@@ -416,7 +430,7 @@ macro_rules! make_dispatch {
                     $(
                         $(#[$meta])*
                         DisplayDispatch::$name(display) => {
-                            let surface = display.make_surface(window, width, height)?;
+                            let surface = display.make_surface(window, width, height).await?;
                             Ok(SurfaceDispatch::$name(surface).into())
                         },
                     )*

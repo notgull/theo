@@ -299,11 +299,10 @@ fn main() -> ! {
 
                 // Create a new theo surface.
                 let size = window.inner_size();
-                let surface = unsafe {
-                    display
-                        .make_surface(&window, size.width, size.height)
-                        .expect("Failed to create surface")
-                };
+                let surface = futures_lite::future::block_on(unsafe {
+                    display.make_surface(&window, size.width, size.height)
+                })
+                .expect("Failed to create surface");
 
                 // Save the state.
                 state = Some((window, surface));

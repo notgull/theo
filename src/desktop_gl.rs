@@ -217,7 +217,7 @@ impl Display {
         None
     }
 
-    pub(super) unsafe fn make_surface(
+    pub(super) async unsafe fn make_surface(
         &mut self,
         raw: RawWindowHandle,
         width: u32,
