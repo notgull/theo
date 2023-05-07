@@ -158,8 +158,14 @@ impl Display {
             .formats
             .iter()
             .find(|format| {
-                matches!(format, wgpu::TextureFormat::Rgba8Unorm)
-                    | matches!(format, wgpu::TextureFormat::Bgra8Unorm)
+                matches!(format, wgpu::TextureFormat::Rgba8UnormSrgb)
+                    | matches!(format, wgpu::TextureFormat::Bgra8UnormSrgb)
+            })
+            .or_else(|| {
+                cap.formats.iter().find(|format| {
+                    matches!(format, wgpu::TextureFormat::Rgba8Unorm)
+                        | matches!(format, wgpu::TextureFormat::Bgra8Unorm)
+                })
             })
             .or_else(|| cap.formats.first())
             .ok_or(Error::NotSupported)?;
@@ -168,11 +174,9 @@ impl Display {
             .iter()
             .find(|am| {
                 if self.supports_transparency {
-                    !matches!(
+                    matches!(
                         am,
-                        wgpu::CompositeAlphaMode::Opaque
-                            | wgpu::CompositeAlphaMode::Auto
-                            | wgpu::CompositeAlphaMode::Inherit
+                        wgpu::CompositeAlphaMode::PreMultiplied
                     )
                 } else {
                     true
@@ -205,15 +209,15 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         width: u32,
         height: u32,
     ) -> Result<Self, Error> {
-        // Create the surface texture.
-        let surface_texture = surface.surface.get_current_texture().piet_err()?;
-
         // Set the texture size.
         surface.config.width = width;
         surface.config.height = height;
         surface
             .surface
             .configure(&surface.context.device_and_queue().device, &surface.config);
+
+        // Create the surface texture.
+        let surface_texture = surface.surface.get_current_texture().piet_err()?;
 
         // Create the inner context.
         let mut inner = surface.context.render_context(
