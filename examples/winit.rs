@@ -28,6 +28,7 @@ fn main() -> ! {
 
     // Create the display.
     let mut display = {
+        #[allow(unused_mut)]
         let mut display = Display::builder();
 
         // Uncomment this to force software rendering.

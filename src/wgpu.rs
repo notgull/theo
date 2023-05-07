@@ -176,20 +176,22 @@ impl Display {
                 if self.supports_transparency {
                     matches!(
                         am,
-                        wgpu::CompositeAlphaMode::PreMultiplied
+                        wgpu::CompositeAlphaMode::PostMultiplied
+                            | wgpu::CompositeAlphaMode::Inherit
                     )
                 } else {
-                    true
+                    !matches!(am, wgpu::CompositeAlphaMode::PreMultiplied)
                 }
             })
             .or_else(|| cap.alpha_modes.first())
             .ok_or(Error::NotSupported)?;
+
         let config = wgpu::SurfaceConfiguration {
             format: *format,
             width,
             height,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            present_mode: *cap.present_modes.first().unwrap(),
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: *alpha_mode,
             view_formats: vec![*format],
         };

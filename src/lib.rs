@@ -370,20 +370,23 @@ macro_rules! make_dispatch {
                 let mut last_error;
 
                 $(
-                    match <$display>::new(&mut self, raw) {
-                        Ok(display) => {
-                            tracing::trace!("Created `{}` display", stringify!($name));
-                            return Ok(DisplayDispatch::$name(display).into());
-                        },
+                    $(#[$meta])*
+                    {
+                        match <$display>::new(&mut self, raw) {
+                            Ok(display) => {
+                                tracing::trace!("Created `{}` display", stringify!($name));
+                                return Ok(DisplayDispatch::$name(display).into());
+                            },
 
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to create `{}` display: {}",
-                                stringify!($name),
-                                e
-                            );
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to create `{}` display: {}",
+                                    stringify!($name),
+                                    e
+                                );
 
-                            last_error = e;
+                                last_error = e;
+                            }
                         }
                     }
                 )*
