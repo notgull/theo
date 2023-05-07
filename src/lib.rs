@@ -221,14 +221,14 @@ pub type XlibErrorHook = Box<dyn Fn(*mut c_void, *mut c_void) -> bool + Send + S
 type XlibErrorHookRegistrar = Box<dyn Fn(XlibErrorHook)>;
 
 /// A builder containing system-specific information to create a [`Display`].
-/// 
+///
 /// The [`DisplayBuilder`] is used to create a [`Display`]. It allows the user to submit some
 /// parameters to the [`Display`] to customize its behavior. It is also used to provide essential
 /// parameters on some platforms; for instance, on X11, an [`XlibErrorHook`] is required to use
 /// the GLX backend.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```no_run
 /// use theo::Display;
 /// # struct MyDisplay;
@@ -246,21 +246,21 @@ type XlibErrorHookRegistrar = Box<dyn Fn(XlibErrorHook)>;
 /// # let my_display = MyDisplay;
 /// # let window = Window;
 /// # fn register_x11_error_hook(_: theo::XlibErrorHook) {}
-/// 
+///
 /// let mut builder = Display::builder();
-/// 
+///
 /// // Provide a window handle to bootstrap the context.
 /// builder = builder.window(&window);
-/// 
+///
 /// // Provide an error hook for GLX.
 /// builder = builder.glx_error_hook(register_x11_error_hook);
-/// 
+///
 /// // Force using software rendering.
 /// builder = builder.force_swrast(true);
-/// 
+///
 /// // Disable use of transparency.
 /// builder = builder.transparent(false);
-/// 
+///
 /// // Create the display.
 /// let display = unsafe { builder.build(&my_display) };
 /// ```
@@ -296,12 +296,12 @@ impl Default for DisplayBuilder {
 
 impl DisplayBuilder {
     /// Create a new [`DisplayBuilder`] with default parameters.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use theo::DisplayBuilder;
-    /// 
+    ///
     /// let builder = DisplayBuilder::new();
     /// ```
     pub fn new() -> Self {
@@ -313,20 +313,20 @@ impl DisplayBuilder {
     /// This is only necessary for WGL bootstrapping. A window is necessary for querying for the
     /// WGL extensions. If you don't provide a window, the context will be created with fewer
     /// available extensions. This is not necessary for any other platforms or backends.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```no_run
     /// use theo::DisplayBuilder;
     /// use winit::window::Window;
-    /// 
+    ///
     /// # fn create_window() -> Window {
     /// #     unimplemented!()
     /// # }
     /// let window: Window = create_window();
-    /// 
+    ///
     /// let mut builder = DisplayBuilder::new();
-    /// 
+    ///
     /// // Only needed on Windows.
     /// #[cfg(target_os = "windows")]
     /// {
@@ -339,33 +339,33 @@ impl DisplayBuilder {
     }
 
     /// Set the error handler for GLX.
-    /// 
+    ///
     /// For the GLX platform, an error handler is required in order to properly handle errors.
     /// Error handling in Xlib is part of the global state, so there needs to be a single "source of
     /// truth" for error handling. This "source of truth" should support taking a closure that
     /// handles the error. This closure is then called whenever an error occurs.
-    /// 
+    ///
     /// For `theo`, this method allows passing in a closure that allows adding an error handler to
     /// the global state. This closure is then called whenever an error occurs.
-    /// 
+    ///
     /// For [`winit`], you should pass in [`register_xlib_error_hook`].
-    /// 
+    ///
     /// [`winit`]: https://crates.io/crates/winit
     /// [`register_xlib_error_hook`]: https://docs.rs/winit/0.28.5/winit/platform/x11/fn.register_xlib_error_hook.html
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```no_run
     /// use std::os::raw::c_int;
     /// use std::ptr;
     /// use std::sync::Mutex;
-    /// 
+    ///
     /// use theo::{DisplayBuilder, XlibErrorHook};
     /// use x11_dl::xlib::{Display, Xlib, XErrorEvent};
-    /// 
+    ///
     /// // A list of error handlers.
     /// static ERROR_HANDLERS: Mutex<Vec<XlibErrorHook>> = Mutex::new(Vec::new());
-    /// 
+    ///
     /// // Register an error handler function.
     /// // Note: This is a not a production-ready error handler. A real error handler should
     /// // handle panics and interop with the rest of the application.
@@ -382,14 +382,14 @@ impl DisplayBuilder {
     ///         }
     ///         0
     ///     }
-    /// 
+    ///
     ///     let xlib = Xlib::open().unwrap();
     ///     let display = (xlib.XOpenDisplay)(ptr::null());
     ///     (xlib.XSetErrorHandler)(Some(error_handler));
     /// }
-    /// 
+    ///
     /// let mut builder = DisplayBuilder::new();
-    /// 
+    ///
     /// // Provide an error hook for GLX.
     /// builder = builder.glx_error_hook(|hook| {
     ///     // Add the error hook to the list of error handlers.
@@ -402,16 +402,16 @@ impl DisplayBuilder {
     }
 
     /// Set whether or not we should support transparent backgrounds.
-    /// 
+    ///
     /// Some backends, such as the software rasterizer, do not support transparency. On the other hand,
     /// others, such as EGL, do. This method allows you to set whether or not we should support
     /// transparent backgrounds.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use theo::DisplayBuilder;
-    /// 
+    ///
     /// let mut builder = DisplayBuilder::new();
     /// builder = builder.transparent(false);
     /// ```
@@ -421,17 +421,17 @@ impl DisplayBuilder {
     }
 
     /// Force software rendering.
-    /// 
+    ///
     /// `theo` contains a software rasterization backend which is used as a fallback when no other
     /// backend is available. This method allows you to force the software rasterizer to be used
     /// even when other backends are available. This can be used, for example, to test the software
     /// rasterizer or to avoid using hardware acceleration.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use theo::DisplayBuilder;
-    /// 
+    ///
     /// let mut builder = DisplayBuilder::new();
     /// builder = builder.force_swrast(true);
     /// ```
@@ -441,7 +441,7 @@ impl DisplayBuilder {
     }
 
     /// Build a new [`Display`].
-    /// 
+    ///
     /// Using the provided parameters, this method will attempt to build a new [`Display`]. If
     /// successful, it will return a new [`Display`]. Otherwise, it will return an error.
     ///
@@ -449,12 +449,12 @@ impl DisplayBuilder {
     ///
     /// - The `display` handle must be a valid `display` that isn't currently suspended.
     /// - The `window` handle, if any, must also be valid.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```no_run
     /// use theo::DisplayBuilder;
-    /// 
+    ///
     /// let event_loop = winit::event_loop::EventLoop::new();
     /// let mut builder = DisplayBuilder::new();
     /// let display = unsafe { builder.build(&event_loop) }.unwrap();
@@ -465,27 +465,27 @@ impl DisplayBuilder {
 }
 
 /// The display used to manage all surfaces.
-/// 
+///
 /// This type contains all common types that can be shared among surfaces. It also contains
 /// methods for creating new surfaces. Most interactions with `theo` will be done through this
 /// type.
-/// 
+///
 /// The backend used by this type is determined by the [`DisplayBuilder`] used to create it.
 /// By default, it will try to use the following backends in order. If one fails, it will try
 /// the next one.
-/// 
+///
 /// - [`wgpu`]
 /// - OpenGL
 /// - Software rasterizer
-/// 
+///
 /// This type also has properties that are useful for creating new surfaces. For example, you
 /// can use [`Display::supports_transparency`] to check if the display supports transparent
 /// backgrounds.
-/// 
+///
 /// [`wgpu`]: https://crates.io/crates/wgpu
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```no_run
 /// use theo::Display;
 /// # struct MyDisplay;
@@ -520,15 +520,15 @@ impl DisplayBuilder {
 /// #     }
 /// # }
 /// # let my_display = MyDisplay;
-/// 
+///
 /// # futures_lite::future::block_on(async {
 /// // Create a new display.
 /// let mut display = unsafe { Display::new(&my_display) }.unwrap();
-/// 
+///
 /// // Use the display to create a new window.
 /// let mut window_builder = WindowBuilder::new()
 ///     .with_transparency(display.supports_transparency());
-/// 
+///
 /// if cfg!(using_x11) {
 ///     if let Some(visual) = display.x11_visual() {
 ///         unsafe {
@@ -536,10 +536,10 @@ impl DisplayBuilder {
 ///         }
 ///     }
 /// }
-/// 
+///
 /// // Create the window.
 /// let window = window_builder.build();
-/// 
+///
 /// // Use the window to create a new theo surface.
 /// let surface = unsafe {
 ///     display.make_surface(
@@ -547,7 +547,7 @@ impl DisplayBuilder {
 ///         window.width(),
 ///         window.height(),
 ///     ).await.unwrap()
-/// }; 
+/// };
 /// # });
 /// ```
 pub struct Display {
@@ -572,7 +572,7 @@ impl From<DisplayDispatch> for Display {
 
 impl Display {
     /// Create a new [`DisplayBuilder`].
-    /// 
+    ///
     /// This is a shorthand that allows the user to avoid having to import the [`DisplayBuilder`]
     /// type.
     pub fn builder() -> DisplayBuilder {
@@ -580,19 +580,19 @@ impl Display {
     }
 
     /// Create a new, default [`Display`].
-    /// 
+    ///
     /// This is a shorthand for `DisplayBuilder::new().build()`.
     ///
     /// # Safety
     ///
     /// The `display` handle must be a valid `display` that isn't currently suspended.
     /// See the safety requirements of [`DisplayBuilder::build`] for more information.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```no_run
     /// use theo::Display;
-    /// 
+    ///
     /// let event_loop = winit::event_loop::EventLoop::new();
     /// let display = unsafe { Display::new(&event_loop) }.unwrap();
     /// ```
@@ -601,7 +601,7 @@ impl Display {
     }
 
     /// Create a new [`Surface`] from a window.
-    /// 
+    ///
     /// This function creates the state that `theo` associates with a window with the provided
     /// width and height. The [`Surface`] can be used with the [`Display`] to draw to the window.
     ///
@@ -616,22 +616,22 @@ impl Display {
     /// The `window` handle must be a valid `window` that isn't currently suspended. The
     /// `width` and `height` parameters aren't necessarily required to be correct, but
     /// it's recommended that they are in order to avoid visual bugs.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```no_run
     /// use theo::Display;
     /// use winit::event_loop::EventLoop;
     /// use winit::window::Window;
-    /// 
+    ///
     /// # futures_lite::future::block_on(async {
     /// let event_loop = EventLoop::new();
     /// let mut display = unsafe { Display::new(&event_loop) }.unwrap();
-    /// 
+    ///
     /// // In a real-world use case, parameters from the `display` would be used to create the window.
     /// let window = Window::new(&event_loop).unwrap();
     /// let size = window.inner_size();
-    /// 
+    ///
     /// // Create a new surface from the window.
     /// let surface = unsafe {
     ///     display.make_surface(
@@ -640,7 +640,7 @@ impl Display {
     ///         size.height,
     ///     ).await.unwrap()
     /// };
-    /// # }); 
+    /// # });
     pub async unsafe fn make_surface(
         &mut self,
         window: impl HasRawWindowHandle,
@@ -653,12 +653,12 @@ impl Display {
 }
 
 /// The surface used to draw to.
-/// 
+///
 /// The surface represents a rectangle on screen that can be drawn to. It's created from a
 /// [`Display`] and a window, and can be used to draw to the window.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```no_run
 /// use theo::{Display, RenderContext};
 /// # struct MyDisplay;
@@ -693,15 +693,15 @@ impl Display {
 /// #     }
 /// # }
 /// # let my_display = MyDisplay;
-/// 
+///
 /// # futures_lite::future::block_on(async {
 /// // Create a new display.
 /// let mut display = unsafe { Display::new(&my_display) }.unwrap();
-/// 
+///
 /// // Use the display to create a new window.
 /// let mut window_builder = WindowBuilder::new()
 ///     .with_transparency(display.supports_transparency());
-/// 
+///
 /// if cfg!(using_x11) {
 ///     if let Some(visual) = display.x11_visual() {
 ///         unsafe {
@@ -709,10 +709,10 @@ impl Display {
 ///         }
 ///     }
 /// }
-/// 
+///
 /// // Create the window.
 /// let window = window_builder.build();
-/// 
+///
 /// // Use the window to create a new theo surface.
 /// let mut surface = unsafe {
 ///     display.make_surface(
@@ -721,7 +721,7 @@ impl Display {
 ///         window.height(),
 ///     ).await.unwrap()
 /// };
-/// 
+///
 /// // Use the surface to create a new render context.
 /// let mut context = RenderContext::new(
 ///     &mut display,
@@ -752,13 +752,13 @@ impl From<SurfaceDispatch> for Surface {
 }
 
 /// The context used to draw to a [`Surface`].
-/// 
+///
 /// This is the whole point of this crate, and is the aperture used to actually draw with vector
 /// graphics. It's created from a [`Display`] and a [`Surface`], and can be used to draw to the
 /// surface.
-/// 
+///
 /// See the [`RenderContext`] documentation for more information.
-/// 
+///
 /// [`RenderContext`]: https://docs.rs/piet/0.6.2/piet/trait.RenderContext.html
 pub struct RenderContext<'dsp, 'surf> {
     /// The dispatch used to draw to the surface.
@@ -803,9 +803,9 @@ impl Drop for RenderContext<'_, '_> {
 }
 
 /// The brushes used to draw to a [`Surface`].
-/// 
+///
 /// See the documentation for [`Brush`] for more information.
-/// 
+///
 /// [`Brush`]: https://docs.rs/piet/0.6.2/piet/trait.RenderContext.html#associatedtype.Brush
 #[derive(Clone)]
 pub struct Brush {
@@ -829,9 +829,9 @@ impl fmt::Debug for Brush {
 }
 
 /// The images used to draw to a [`Surface`].
-/// 
+///
 /// See the documentation for [`Image`] for more information.
-/// 
+///
 /// [`Image`]: https://docs.rs/piet/0.6.2/piet/trait.RenderContext.html#associatedtype.Image
 #[derive(Clone)]
 pub struct Image {
@@ -899,7 +899,7 @@ macro_rules! make_dispatch {
 
         impl DisplayBuilder {
             /// Build the [`Display`] from a raw display handle.
-            /// 
+            ///
             /// This is equivalent to [`DisplayBuilder::build`], but takes a raw display handle
             /// instead of a type that implements [`HasRawDisplayHandle`]. This is useful for
             /// implementing [`HasRawDisplayHandle`] for types that don't own their display.
@@ -908,7 +908,7 @@ macro_rules! make_dispatch {
             ///
             /// The `raw` handle must be a valid `display` that isn't currently suspended.
             /// The `raw` handle must be valid for the duration of the [`Display`].
-            #[allow(unused_assignments)]
+            #[allow(unused_assignments, unused_mut)]
             pub unsafe fn build_from_raw(
                 mut self,
                 raw: RawDisplayHandle
@@ -943,19 +943,19 @@ macro_rules! make_dispatch {
 
         impl Display {
             /// Whether or not this display supports transparent backgrounds.
-            /// 
+            ///
             /// If this is `true`, then the [`Surface`]s created from this display will support
             /// transparency if the underlying windowing system supports it. You should use this
             /// to decide whether or not to use a transparent background.
-            /// 
+            ///
             /// # Example
-            /// 
+            ///
             /// ```no_run
             /// use theo::Display;
-            /// 
+            ///
             /// let event_loop = winit::event_loop::EventLoop::new();
             /// let display = unsafe { Display::new(&event_loop) }.unwrap();
-            /// 
+            ///
             /// if display.supports_transparency() {
             ///     create_transparent_window();
             /// } else {
@@ -974,18 +974,18 @@ macro_rules! make_dispatch {
             }
 
             /// The X11 visual used by this display, if any.
-            /// 
+            ///
             /// This is useful for creating [`Surface`]s with a specific visual. On X11, you can
             /// use this to create a surface.
-            /// 
+            ///
             /// # Example
-            /// 
+            ///
             /// ```no_run
             /// use theo::Display;
-            /// 
+            ///
             /// let event_loop = winit::event_loop::EventLoop::new();
             /// let display = unsafe { Display::new(&event_loop) }.unwrap();
-            /// 
+            ///
             /// let visual = display.x11_visual().unwrap();
             /// ```
             pub fn x11_visual(&self) -> Option<std::ptr::NonNull<()>> {
@@ -998,7 +998,7 @@ macro_rules! make_dispatch {
             }
 
             /// Create a new [`Surface`] from a raw window handle.
-            /// 
+            ///
             /// This is equivalent to [`Display::make_surface`], except that it takes a raw window
             /// handle instead of a window. This is useful if you want to create a surface from a
             /// window that doesn't implement [`RawWindowHandle`].
@@ -1034,9 +1034,10 @@ macro_rules! make_dispatch {
 
         impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
             /// Create a new [`RenderContext`] from a [`Surface`] and a [`Display`].
-            /// 
+            ///
             /// This creates a new [`RenderContext`] from a [`Surface`] and a [`Display`]. This is
             /// the only way to create a [`RenderContext`].
+            #[allow(unreachable_patterns)]
             pub fn new(
                 display: &'dsp mut Display,
                 surface: &'surf mut Surface,
@@ -1077,6 +1078,7 @@ macro_rules! make_dispatch {
             ///
             /// The same as `new`, but you need to make sure that there are no other OpenGL contexts
             /// active on the current thread.
+            #[allow(unreachable_patterns)]
             pub unsafe fn new_unchecked(
                 display: &'dsp mut Display,
                 surface: &'surf mut Surface,
@@ -1152,6 +1154,7 @@ macro_rules! make_dispatch {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
                 let brush = brush.make_brush(self, || shape.bounding_box());
                 match (&mut *self.dispatch, &*brush.dispatch) {
@@ -1165,6 +1168,7 @@ macro_rules! make_dispatch {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn stroke_styled(
                 &mut self,
                 shape: impl Shape,
@@ -1184,6 +1188,7 @@ macro_rules! make_dispatch {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
                 let brush = brush.make_brush(self, || shape.bounding_box());
                 match (&mut *self.dispatch, &*brush.dispatch) {
@@ -1197,6 +1202,7 @@ macro_rules! make_dispatch {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn fill_even_odd(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
                 let brush = brush.make_brush(self, || shape.bounding_box());
                 match (&mut *self.dispatch, &*brush.dispatch) {
@@ -1293,6 +1299,7 @@ macro_rules! make_dispatch {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn draw_image(
                 &mut self,
                 image: &Self::Image,
@@ -1310,6 +1317,7 @@ macro_rules! make_dispatch {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn draw_image_area(
                 &mut self,
                 image: &Self::Image,
@@ -1345,6 +1353,7 @@ macro_rules! make_dispatch {
                 }
             }
 
+            #[allow(unreachable_patterns)]
             fn blurred_rect(&mut self, rect: Rect, blur_radius: f64, brush: &impl IntoBrush<Self>) {
                 let brush = brush.make_brush(self, || rect);
                 match (&mut *self.dispatch, &*brush.dispatch) {

@@ -466,6 +466,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         &mut self.display.text
     }
 
+    #[allow(unreachable_patterns)]
     pub(super) fn draw_text(&mut self, layout: &TextLayout, pos: impl Into<Point>) {
         let text = self.text().clone();
         let (display, mut buffer, state, ..) = self.drawing_parts();

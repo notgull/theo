@@ -38,6 +38,7 @@ use piet_wgpu::{
 pub struct Text(pub(crate) TextInner);
 
 impl Text {
+    #[allow(unreachable_patterns)]
     pub(crate) fn as_inner(&self) -> &piet_cosmic_text::Text {
         match &self.0 {
             TextInner::Cosmic(inner) => inner,
