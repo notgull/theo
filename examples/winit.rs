@@ -21,8 +21,7 @@
 
 //! Basic usage of `theo`, using `winit` as the windowing system.
 
-use std::time::{Duration, Instant};
-
+use instant::{Duration, Instant};
 use piet::kurbo::{Affine, BezPath, Point, Rect, Vec2};
 use piet::{FontFamily, GradientStop, RenderContext as _, Text, TextLayoutBuilder};
 use theo::{Display, RenderContext};
@@ -32,8 +31,14 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
+const TEST_IMAGE: &[u8] = include_bytes!("./assets/test-image.png");
+
 #[allow(unused_assignments)]
 fn main() -> ! {
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    }
     env_logger::init();
 
     // Function that creates a window builder for our window.
@@ -106,9 +111,9 @@ fn main() -> ! {
     let mut current_fps = None;
 
     // Get the test image at $CRATE_ROOT/examples/assets/test-image.png
-    let manifest_root = env!("CARGO_MANIFEST_DIR");
-    let path = std::path::Path::new(manifest_root).join("examples/assets/test-image.png");
-    let image = image::open(path).expect("Failed to open image").to_rgba8();
+    let image = image::load_from_memory(TEST_IMAGE)
+        .expect("Failed to load test image")
+        .to_rgba8();
     let image_size = image.dimensions();
     let image_data = image.into_raw();
 
@@ -267,27 +272,29 @@ fn main() -> ! {
             .unwrap();
 
         // Update the FPS counter.
-        num_frames += 1;
-        let now = Instant::now();
-        if now - last_second >= Duration::from_secs(1) {
-            let fps_string = format!("Frames per Second: {num_frames}");
-            let fps_text = render_context
-                .text()
-                .new_text_layout(fps_string)
-                .font(FontFamily::SERIF, 24.0)
-                .text_color(piet::Color::BLACK)
-                .build()
-                .unwrap();
+        if cfg!(not(target_arch = "wasm32")) {
+            num_frames += 1;
+            let now = Instant::now();
+            if now - last_second >= Duration::from_secs(1) {
+                let fps_string = format!("Frames per Second: {num_frames}");
+                let fps_text = render_context
+                    .text()
+                    .new_text_layout(fps_string)
+                    .font(FontFamily::SERIF, 24.0)
+                    .text_color(piet::Color::BLACK)
+                    .build()
+                    .unwrap();
 
-            current_fps = Some(fps_text);
+                current_fps = Some(fps_text);
 
-            num_frames = 0;
-            last_second = now;
-        }
+                num_frames = 0;
+                last_second = now;
+            }
 
-        // Draw the FPS counter.
-        if let Some(fps_text) = &current_fps {
-            render_context.draw_text(fps_text, Point::new(10.0, 10.0));
+            // Draw the FPS counter.
+            if let Some(fps_text) = &current_fps {
+                render_context.draw_text(fps_text, Point::new(10.0, 10.0));
+            }
         }
 
         // Propogate any errors.
@@ -321,6 +328,20 @@ fn main() -> ! {
 
                     window_builder.build(elwt).expect("Failed to create window")
                 });
+
+                // Add the window to the DOM.
+                #[cfg(target_arch = "wasm32")]
+                {
+                    use winit::platform::web::WindowExtWebSys;
+                    web_sys::window()
+                        .unwrap()
+                        .document()
+                        .unwrap()
+                        .body()
+                        .unwrap()
+                        .append_child(&window.canvas())
+                        .unwrap();
+                }
 
                 // Create a new theo surface.
                 let size = window.inner_size();

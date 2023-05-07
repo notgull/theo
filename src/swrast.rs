@@ -661,15 +661,11 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         // Draw the image.
         let (_, mut buffer, state, ..) = self.drawing_parts();
         let transform = convert_transform(state.transform);
-        leap!(
-            self,
-            buffer.fill_rect(
-                convert_rect(dst_rect).unwrap(),
-                &paint,
-                transform,
-                state.clip.as_ref(),
-            ),
-            "Failed to draw image"
+        buffer.fill_rect(
+            convert_rect(dst_rect).unwrap(),
+            &paint,
+            transform,
+            state.clip.as_ref(),
         );
     }
 
