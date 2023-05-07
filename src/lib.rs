@@ -25,7 +25,7 @@
 //! from [`raw-window-handle`] for easy integration.
 //!
 //! `theo` prioritizes versatility and performance. By default, `theo` uses an optimized
-//! OpenGL backend for rendering. If OpenGl is not available, `theo` will fall back to
+//! GPU backend for rendering. If the GPU is not available, `theo` will fall back to
 //! software rendering.
 //!
 //! # Usage
