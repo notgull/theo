@@ -38,6 +38,9 @@ extern crate wgpu0 as wgpu;
 mod desktop_gl;
 mod swrast;
 mod text;
+#[cfg(feature = "wgpu")]
+#[path = "wgpu.rs"]
+mod wgpu_backend;
 
 use piet::kurbo::{Affine, Point, Shape, Size};
 use piet::{kurbo::Rect, Error};
@@ -794,6 +797,15 @@ macro_rules! make_dispatch {
 }
 
 make_dispatch! {
+    #[cfg(feature = "wgpu")]
+    Wgpu(
+        wgpu_backend::Display,
+        wgpu_backend::Surface,
+        wgpu_backend::RenderContext<'dsp, 'surf>,
+        piet_wgpu::Brush<wgpu_backend::WgpuInnards>,
+        piet_wgpu::Image<wgpu_backend::WgpuInnards>
+    ),
+
     #[cfg(all(feature = "gl", not(target_family = "wasm")))]
     DesktopGl(
         desktop_gl::Display,
@@ -838,3 +850,17 @@ impl<T, E: std::error::Error + 'static> ResultExt<T, E> for Result<T, E> {
         self.map_err(|e| Error::BackendError(Box::new(LibraryError(e))))
     }
 }
+
+#[derive(Debug)]
+struct SwitchToSwrast;
+
+impl fmt::Display for SwitchToSwrast {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Switching to software rendering, this may cause lower performance"
+        )
+    }
+}
+
+impl std::error::Error for SwitchToSwrast {}
