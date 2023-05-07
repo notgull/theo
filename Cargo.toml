@@ -49,8 +49,15 @@ cfg_aliases = "0.1.1"
 env_logger = { version = "0.10.0", default-features = false, features = ["color"] }
 futures-lite = "1.13.0"
 image = { version = "0.24.5", default-features = false, features = ["png"] }
+instant = "0.1.12"
 tracing = { version = "0.1.37", features = ["log"] }
 winit = { version = "0.28.1", default-features = false, features = ["x11"] }
 
-[target.'cfg(not(windows))'.dev-dependencies]
+[target.'cfg(not(any(windows, target_arch = "wasm32")))'.dev-dependencies]
 x11-dl = "2.21.0"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+console_error_panic_hook = "0.1.7"
+
+[workspace]
+members = ["run-wasm"]

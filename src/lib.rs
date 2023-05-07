@@ -358,7 +358,7 @@ impl DisplayBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # #[cfg(not(windows))]
+    /// # #[cfg(not(any(windows, target_arch = "wasm32")))]
     /// # {
     /// use std::os::raw::c_int;
     /// use std::ptr;

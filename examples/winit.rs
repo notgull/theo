@@ -21,8 +21,7 @@
 
 //! Basic usage of `theo`, using `winit` as the windowing system.
 
-use std::time::{Duration, Instant};
-
+use instant::{Duration, Instant};
 use piet::kurbo::{Affine, BezPath, Point, Rect, Vec2};
 use piet::{FontFamily, GradientStop, RenderContext as _, Text, TextLayoutBuilder};
 use theo::{Display, RenderContext};
@@ -34,6 +33,10 @@ use winit::window::WindowBuilder;
 
 #[allow(unused_assignments)]
 fn main() -> ! {
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    }
     env_logger::init();
 
     // Function that creates a window builder for our window.
@@ -328,6 +331,18 @@ fn main() -> ! {
                     display.make_surface(&window, size.width, size.height)
                 })
                 .expect("Failed to create surface");
+
+                // Add the window to the DOM.
+                #[cfg(target_arch = "wasm32")]
+                {
+                    use winit::platform::web::WindowExtWebSys;
+                    web_sys::window()
+                        .unwrap()
+                        .document()
+                        .unwrap()
+                        .append_child(&window.canvas())
+                        .unwrap();
+                }
 
                 // Save the state.
                 state = Some((window, surface));
