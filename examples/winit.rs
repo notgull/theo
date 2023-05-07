@@ -32,6 +32,7 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
+#[allow(unused_assignments)]
 fn main() -> ! {
     env_logger::init();
 
