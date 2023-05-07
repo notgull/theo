@@ -356,6 +356,8 @@ impl DisplayBuilder {
     /// # Examples
     ///
     /// ```no_run
+    /// # #[cfg(not(windows))]
+    /// # {
     /// use std::os::raw::c_int;
     /// use std::ptr;
     /// use std::sync::Mutex;
@@ -395,6 +397,7 @@ impl DisplayBuilder {
     ///     // Add the error hook to the list of error handlers.
     ///     ERROR_HANDLERS.lock().unwrap().push(hook);
     /// });
+    /// # }
     /// ```
     pub fn glx_error_hook(mut self, hook: impl Fn(XlibErrorHook) + 'static) -> Self {
         self.glx_error_hook = Some(Box::new(hook));
