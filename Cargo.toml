@@ -12,31 +12,38 @@ cosmic-text = { version = "0.8.0", default-features = false, features = ["std", 
 glow = { version = "0.12.1", optional = true }
 piet = { version = "0.6.2", default-features = false }
 piet-cosmic-text = "0.2.0"
-piet-glow = { version = "0.1.0" }
+piet-glow = { version = "0.1.0", optional = true }
+piet-wgpu = { version = "0.1.0", default-features = false, optional = true }
 raw-window-handle = "0.5.0"
 softbuffer = "0.2.0"
 tiny-skia = { version = "0.8.3", default-features = false, features = ["std"] }
 tiny-skia-path = "0.8.3"
 tinyvec = { version = "1.6.0", default-features = false, features = ["alloc"] }
 tracing = { version = "0.1.37", default-features = false }
+wgpu0 = { package = "wgpu", version = "0.15.0", default-features = false, optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 glutin = { version = "0.30.6", default-features = false, optional = true, features = ["egl"] }
 
 [features]
-default = ["gl", "x11", "wayland", "egl", "glx", "wgl"]
-gl = ["glow", "glutin"]
+default = ["gl", "x11", "wayland", "egl", "glx", "wgl", "wgpu"]
+gl = ["glow", "glutin", "piet-glow"]
 x11 = ["glutin?/x11", "softbuffer/x11"]
 wayland = ["glutin?/wayland", "softbuffer/wayland"]
 egl = ["gl", "glutin/egl"]
 glx = ["gl", "glutin/glx"]
 wgl = ["gl", "glutin/wgl"]
+wgpu = ["piet-wgpu", "wgpu0"]
 
 [build-dependencies]
 cfg_aliases = "0.1.1"
 
 [dev-dependencies]
 env_logger = { version = "0.10.0", default-features = false, features = ["color"] }
+futures-lite = "1.13.0"
 image = { version = "0.24.5", default-features = false, features = ["png"] }
 tracing = { version = "0.1.37", features = ["log"] }
 winit = { version = "0.28.1", default-features = false, features = ["x11"] }
+
+[patch.crates-io]
+piet-wgpu = { path = "../piet-hardware/crates/piet-wgpu" }

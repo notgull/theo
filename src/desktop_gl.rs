@@ -21,7 +21,7 @@
 //! context.
 
 use super::text::{TextInner, TextLayoutInner};
-use super::{DisplayBuilder, Error, ResultExt, Text, TextLayout};
+use super::{DisplayBuilder, Error, ResultExt, SwitchToSwrast, Text, TextLayout};
 
 use glutin::config::{Config, ConfigTemplateBuilder};
 use glutin::context::{
@@ -37,7 +37,6 @@ use piet::{RenderContext as _, StrokeStyle};
 use piet_glow::GlContext;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
-use std::fmt;
 use std::num::NonZeroU32;
 use std::ptr::NonNull;
 
@@ -217,7 +216,7 @@ impl Display {
         None
     }
 
-    pub(super) unsafe fn make_surface(
+    pub(super) async unsafe fn make_surface(
         &mut self,
         raw: RawWindowHandle,
         width: u32,
@@ -532,17 +531,3 @@ impl Drop for ContextScope<'_> {
         );
     }
 }
-
-#[derive(Debug)]
-struct SwitchToSwrast;
-
-impl fmt::Display for SwitchToSwrast {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Switching to software rendering, this may cause lower performance"
-        )
-    }
-}
-
-impl std::error::Error for SwitchToSwrast {}

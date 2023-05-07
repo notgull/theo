@@ -31,10 +31,16 @@
 //! From here, users should create [`Surface`]s, which represent drawing areas. Finally,
 //! a [`Surface`] can be used to create the [`RenderContext`] type, which is used to draw.
 
+#[cfg(feature = "wgpu")]
+extern crate wgpu0 as wgpu;
+
 #[cfg(feature = "gl")]
 mod desktop_gl;
 mod swrast;
 mod text;
+#[cfg(feature = "wgpu")]
+#[path = "wgpu.rs"]
+mod wgpu_backend;
 
 use piet::kurbo::{Affine, Point, Shape, Size};
 use piet::{kurbo::Rect, Error};
@@ -177,18 +183,24 @@ impl Display {
 
     /// Create a new [`Surface`] from a window.
     ///
+    /// # Asynchronous
+    ///
+    /// This function is asynchronous, as it may be necessary to wait for the window to be
+    /// ready to be drawn to.
+    ///
     /// # Safety
     ///
     /// The `window` handle must be a valid `window` that isn't currently suspended. The
     /// `width` and `height` parameters aren't necessarily required to be correct, but
     /// it's recommended that they are in order to avoid visual bugs.
-    pub unsafe fn make_surface(
+    pub async unsafe fn make_surface(
         &mut self,
         window: impl HasRawWindowHandle,
         width: u32,
         height: u32,
     ) -> Result<Surface, Error> {
         self.make_surface_from_raw(window.raw_window_handle(), width, height)
+            .await
     }
 }
 
@@ -358,20 +370,23 @@ macro_rules! make_dispatch {
                 let mut last_error;
 
                 $(
-                    match <$display>::new(&mut self, raw) {
-                        Ok(display) => {
-                            tracing::trace!("Created `{}` display", stringify!($name));
-                            return Ok(DisplayDispatch::$name(display).into());
-                        },
+                    $(#[$meta])*
+                    {
+                        match <$display>::new(&mut self, raw) {
+                            Ok(display) => {
+                                tracing::trace!("Created `{}` display", stringify!($name));
+                                return Ok(DisplayDispatch::$name(display).into());
+                            },
 
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to create `{}` display: {}",
-                                stringify!($name),
-                                e
-                            );
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to create `{}` display: {}",
+                                    stringify!($name),
+                                    e
+                                );
 
-                            last_error = e;
+                                last_error = e;
+                            }
                         }
                     }
                 )*
@@ -403,10 +418,15 @@ macro_rules! make_dispatch {
 
             /// Create a new [`Surface`] from a raw window handle.
             ///
+            /// # Asynchronous
+            ///
+            /// This function is asynchronous, as it may be necessary to wait for the window to be
+            /// ready to be drawn to.
+            ///
             /// # Safety
             ///
             ///
-            pub unsafe fn make_surface_from_raw(
+            pub async unsafe fn make_surface_from_raw(
                 &mut self,
                 window: RawWindowHandle,
                 width: u32,
@@ -416,7 +436,7 @@ macro_rules! make_dispatch {
                     $(
                         $(#[$meta])*
                         DisplayDispatch::$name(display) => {
-                            let surface = display.make_surface(window, width, height)?;
+                            let surface = display.make_surface(window, width, height).await?;
                             Ok(SurfaceDispatch::$name(surface).into())
                         },
                     )*
@@ -780,6 +800,15 @@ macro_rules! make_dispatch {
 }
 
 make_dispatch! {
+    #[cfg(feature = "wgpu")]
+    Wgpu(
+        wgpu_backend::Display,
+        wgpu_backend::Surface,
+        wgpu_backend::RenderContext<'dsp, 'surf>,
+        piet_wgpu::Brush<wgpu_backend::WgpuInnards>,
+        piet_wgpu::Image<wgpu_backend::WgpuInnards>
+    ),
+
     #[cfg(all(feature = "gl", not(target_family = "wasm")))]
     DesktopGl(
         desktop_gl::Display,
@@ -824,3 +853,17 @@ impl<T, E: std::error::Error + 'static> ResultExt<T, E> for Result<T, E> {
         self.map_err(|e| Error::BackendError(Box::new(LibraryError(e))))
     }
 }
+
+#[derive(Debug)]
+struct SwitchToSwrast;
+
+impl fmt::Display for SwitchToSwrast {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Switching to software rendering, this may cause lower performance"
+        )
+    }
+}
+
+impl std::error::Error for SwitchToSwrast {}

@@ -28,10 +28,13 @@ fn main() -> ! {
 
     // Create the display.
     let mut display = {
+        #[allow(unused_mut)]
         let mut display = Display::builder();
 
         // Uncomment this to force software rendering.
         //display = display.force_swrast(true);
+
+        display = display.transparent(false);
 
         // On Windows, we should set up a window first. Otherwise, the GL features
         // we want to use won't be available.
@@ -250,7 +253,7 @@ fn main() -> ! {
                 .text()
                 .new_text_layout(fps_string)
                 .font(FontFamily::SERIF, 24.0)
-                .text_color(piet::Color::rgb8(0x11, 0x22, 0x22))
+                .text_color(piet::Color::BLACK)
                 .build()
                 .unwrap();
 
@@ -299,11 +302,10 @@ fn main() -> ! {
 
                 // Create a new theo surface.
                 let size = window.inner_size();
-                let surface = unsafe {
-                    display
-                        .make_surface(&window, size.width, size.height)
-                        .expect("Failed to create surface")
-                };
+                let surface = futures_lite::future::block_on(unsafe {
+                    display.make_surface(&window, size.width, size.height)
+                })
+                .expect("Failed to create surface");
 
                 // Save the state.
                 state = Some((window, surface));
