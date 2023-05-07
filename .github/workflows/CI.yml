@@ -31,6 +31,9 @@ jobs:
       - run: cargo build --no-default-features --features gl,egl,glx,wgl
       - run: cargo build --no-default-features
       - name: Build for wasm32-unknown-unknown
+        run: cargo build --target wasm32-unknown-unknown --no-default-features
+        if: matrix.os == 'ubuntu-latest' && matrix.rust == 'stable'
+      - name: Build for wasm32-unknown-unknown (with WebGL)
         run: cargo build --target wasm32-unknown-unknown --no-default-features --features gl
         if: matrix.os == 'ubuntu-latest' && matrix.rust == 'stable'
   
