@@ -180,7 +180,7 @@ impl Display {
                             | wgpu::CompositeAlphaMode::Inherit
                     )
                 } else {
-                    !matches!(am, wgpu::CompositeAlphaMode::PreMultiplied)
+                    true
                 }
             })
             .or_else(|| cap.alpha_modes.first())

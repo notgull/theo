@@ -44,3 +44,6 @@ futures-lite = "1.13.0"
 image = { version = "0.24.5", default-features = false, features = ["png"] }
 tracing = { version = "0.1.37", features = ["log"] }
 winit = { version = "0.28.1", default-features = false, features = ["x11"] }
+
+[patch.crates-io]
+piet-wgpu = { path = "../piet-hardware/crates/piet-wgpu" }
