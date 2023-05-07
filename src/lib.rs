@@ -184,10 +184,12 @@
 #[cfg(feature = "wgpu")]
 extern crate wgpu0 as wgpu;
 
-#[cfg(feature = "gl")]
+#[cfg(all(feature = "gl", not(target_arch = "wasm32")))]
 mod desktop_gl;
 mod swrast;
 mod text;
+#[cfg(all(feature = "gl", target_arch = "wasm32"))]
+mod web_gl;
 #[cfg(feature = "wgpu")]
 #[path = "wgpu.rs"]
 mod wgpu_backend;
@@ -1413,11 +1415,20 @@ make_dispatch! {
         piet_wgpu::Image<wgpu_backend::WgpuInnards>
     ),
 
-    #[cfg(all(feature = "gl", not(target_family = "wasm")))]
+    #[cfg(all(feature = "gl", not(target_arch = "wasm32")))]
     DesktopGl(
         desktop_gl::Display,
         desktop_gl::Surface,
         desktop_gl::RenderContext<'dsp, 'surf>,
+        piet_glow::Brush<glow::Context>,
+        piet_glow::Image<glow::Context>
+    ),
+
+    #[cfg(all(feature = "gl", target_arch = "wasm32"))]
+    WebGl(
+        web_gl::Display,
+        web_gl::Surface,
+        web_gl::RenderContext<'dsp, 'surf>,
         piet_glow::Brush<glow::Context>,
         piet_glow::Image<glow::Context>
     ),
@@ -1455,6 +1466,16 @@ trait ResultExt<T, E: std::error::Error + 'static> {
 impl<T, E: std::error::Error + 'static> ResultExt<T, E> for Result<T, E> {
     fn piet_err(self) -> Result<T, Error> {
         self.map_err(|e| Error::BackendError(Box::new(LibraryError(e))))
+    }
+}
+
+trait OptionExt<T> {
+    fn piet_err(self, message: impl Into<String>) -> Result<T, Error>;
+}
+
+impl<T> OptionExt<T> for Option<T> {
+    fn piet_err(self, message: impl Into<String>) -> Result<T, Error> {
+        self.ok_or_else(|| Error::BackendError(message.into().into()))
     }
 }
 
