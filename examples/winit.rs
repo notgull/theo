@@ -59,7 +59,7 @@ fn main() -> ! {
         let mut display = Display::builder();
 
         // Uncomment this to force software rendering.
-        //display = display.force_swrast(true);
+        display = display.force_swrast(true);
 
         display = display.transparent(false);
 
@@ -282,6 +282,7 @@ fn main() -> ! {
                     .new_text_layout(fps_string)
                     .font(FontFamily::SERIF, 24.0)
                     .text_color(piet::Color::BLACK)
+                    .default_attribute(piet::TextAttribute::Underline(true))
                     .build()
                     .unwrap();
 

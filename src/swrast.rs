@@ -32,7 +32,9 @@ use piet::{
     LineCap, LineJoin, StrokeStyle,
 };
 
-use cosmic_text::{Color as CosmicColor, SwashCache};
+use cosmic_text::{Color as CosmicColor, LayoutGlyph, SwashCache};
+use line_straddler::{Line as LsLine, LineGenerator, LineType};
+use piet_cosmic_text::Metadata;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use softbuffer::GraphicsContext;
 use tiny_skia::{ClipMask, ColorU8, FillRule, Paint, PathBuilder, Pixmap, PixmapMut, Shader};
@@ -487,7 +489,30 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         };
 
         // Draw the buffer into the pixmap.
+        let mut text_state = LineState::new();
         text.with_font_system_mut(|fs| {
+            // Iterate and collect line states.
+            for (glyph, line_y) in layout.buffer().layout_runs().flat_map(|run| {
+                let y = run.line_y;
+                run.glyphs.iter().map(move |glyph| (glyph, y))
+            }) {
+                let color = match glyph.color_opt {
+                    Some(color) => {
+                        let [r, g, b, a] = [color.r(), color.g(), color.b(), color.a()];
+                        piet::Color::rgba8(r, g, b, a)
+                    }
+
+                    None => piet::util::DEFAULT_TEXT_COLOR,
+                };
+
+                text_state.handle_glyph(
+                    glyph,
+                    line_y - (f32::from_bits(glyph.cache_key.font_size_bits) * 0.9),
+                    color,
+                    false,
+                );
+            }
+
             layout.buffer().draw(
                 fs,
                 &mut display.glyph_cache,
@@ -517,6 +542,33 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
                 },
             )
         });
+
+        // Draw the lines as well.
+        let line_width = 3.0;
+        for line in text_state.lines() {
+            if let Some(rect) = tiny_skia::Rect::from_ltrb(
+                line.start_x + x_off as f32,
+                line.y + y_off as f32,
+                line.end_x + x_off as f32,
+                line.y + line_width + y_off as f32,
+            ) {
+                let color = tiny_skia::Color::from_rgba8(
+                    line.style.color.red(),
+                    line.style.color.green(),
+                    line.style.color.blue(),
+                    line.style.color.alpha(),
+                );
+                buffer.fill_rect(
+                    rect,
+                    &tiny_skia::Paint {
+                        shader: tiny_skia::Shader::SolidColor(color),
+                        ..Default::default()
+                    },
+                    transform,
+                    state.clip.as_ref(),
+                );
+            }
+        }
     }
 
     pub(super) fn save(&mut self) -> Result<(), Error> {
@@ -723,6 +775,88 @@ impl Image {
         let height = self.0.height() as f64;
 
         Size::new(width, height)
+    }
+}
+
+struct LineState {
+    /// State for the underline.
+    underline: LineGenerator,
+
+    /// State for the strikethrough.
+    strikethrough: LineGenerator,
+
+    /// The lines to draw.
+    lines: Vec<LsLine>,
+}
+
+impl LineState {
+    fn new() -> Self {
+        Self {
+            underline: LineGenerator::new(LineType::Underline),
+            strikethrough: LineGenerator::new(LineType::StrikeThrough),
+            lines: Vec::new(),
+        }
+    }
+
+    fn handle_glyph(
+        &mut self,
+        glyph: &LayoutGlyph,
+        line_y: f32,
+        color: piet::Color,
+        is_bold: bool,
+    ) {
+        // Get the metadata.
+        let metadata = Metadata::from_raw(glyph.metadata);
+        let glyph = line_straddler::Glyph {
+            line_y,
+            font_size: f32::from_bits(glyph.cache_key.font_size_bits),
+            width: glyph.w,
+            x: glyph.x,
+            style: line_straddler::GlyphStyle {
+                bold: is_bold,
+                color: match glyph.color_opt {
+                    Some(color) => {
+                        let [r, g, b, a] = [color.r(), color.g(), color.b(), color.a()];
+
+                        line_straddler::Color::rgba(r, g, b, a)
+                    }
+
+                    None => {
+                        let (r, g, b, a) = color.as_rgba8();
+                        line_straddler::Color::rgba(r, g, b, a)
+                    }
+                },
+            },
+        };
+        let Self {
+            underline,
+            strikethrough,
+            lines,
+        } = self;
+
+        let handle_meta = |generator: &mut LineGenerator, has_it| {
+            if has_it {
+                generator.add_glyph(glyph)
+            } else {
+                generator.pop_line()
+            }
+        };
+
+        let underline = handle_meta(underline, metadata.underline());
+        let strikethrough = handle_meta(strikethrough, metadata.strikethrough());
+
+        lines.extend(underline);
+        lines.extend(strikethrough);
+    }
+
+    fn lines(&mut self) -> Vec<line_straddler::Line> {
+        // Pop the last lines.
+        let underline = self.underline.pop_line();
+        let strikethrough = self.strikethrough.pop_line();
+        self.lines.extend(underline);
+        self.lines.extend(strikethrough);
+
+        mem::take(&mut self.lines)
     }
 }
 
