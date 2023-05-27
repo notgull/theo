@@ -13,7 +13,7 @@ glow = { version = "0.12.1", optional = true }
 piet = { version = "0.6.2", default-features = false }
 piet-cosmic-text = "0.2.0"
 piet-glow = { version = "0.1.0", optional = true }
-piet-wgpu = { version = "0.2.0", default-features = false, optional = true }
+piet-wgpu = { version = "0.2.2", default-features = false, optional = true }
 raw-window-handle = "0.5.0"
 softbuffer = "0.2.0"
 tiny-skia = { version = "0.8.3", default-features = false, features = ["std"] }

@@ -161,14 +161,8 @@ impl Display {
             .formats
             .iter()
             .find(|format| {
-                matches!(format, wgpu::TextureFormat::Rgba8UnormSrgb)
-                    | matches!(format, wgpu::TextureFormat::Bgra8UnormSrgb)
-            })
-            .or_else(|| {
-                cap.formats.iter().find(|format| {
-                    matches!(format, wgpu::TextureFormat::Rgba8Unorm)
-                        | matches!(format, wgpu::TextureFormat::Bgra8Unorm)
-                })
+                matches!(format, wgpu::TextureFormat::Rgba8Unorm)
+                    | matches!(format, wgpu::TextureFormat::Bgra8Unorm)
             })
             .or_else(|| cap.formats.first())
             .ok_or(Error::NotSupported)?;
