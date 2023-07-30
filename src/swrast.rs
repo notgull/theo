@@ -224,6 +224,7 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
         &mut self.text
     }
 
+    #[allow(unreachable_patterns)]
     pub(super) fn draw_text(&mut self, layout: &TextLayout, pos: impl Into<Point>) {
         let layout = match &layout.0 {
             TextLayoutInner::Cosmic(ct) => ct,
