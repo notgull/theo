@@ -51,6 +51,7 @@
 //! #         unimplemented!()
 //! #     }
 //! # }
+//! # #[derive(Copy, Clone)]
 //! # struct Window;
 //! # unsafe impl raw_window_handle::HasRawWindowHandle for Window {
 //! #     fn raw_window_handle(&self) -> raw_window_handle::RawWindowHandle {
@@ -60,7 +61,7 @@
 //! # impl Window {
 //! #     fn width(&self) -> u32 { 0 }
 //! #     fn height(&self) -> u32 { 0 }
-//! #     fn on_draw(&self, f: impl FnOnce()) { f() }
+//! #     fn on_draw<R>(&self, f: impl FnOnce() -> R) { f(); }
 //! # }
 //! # let my_display = MyDisplay;
 //! # let window = Window;
@@ -108,7 +109,8 @@
 //!     ctx.finish().expect("failed to finish drawing");
 //!
 //!     // Present the display.
-//!     display.present().await.expect("failed to present display");
+//!     drop(ctx);
+//!     display.present().await;
 //! });
 //! # });
 //! ```

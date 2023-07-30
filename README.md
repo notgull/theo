@@ -63,7 +63,7 @@ surface.on_draw(move || async move {
 
     // If you don't have any other windows to draw, make sure the windows are
     // presented.
-    display.present().await.expect("failed to present");
+    display.present().await;
 });
 ```
 
