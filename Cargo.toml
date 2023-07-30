@@ -8,20 +8,18 @@ description = "A standalone renderer for windowing graphics"
 
 [dependencies]
 bytemuck = { version = "1.13.1", default-features = false }
-cosmic-text = { version = "0.8.0", default-features = false, features = ["std", "swash"] }
+cosmic-text = { version = "0.9.0", default-features = false, features = ["std", "swash"] }
 glow = { version = "0.12.1", optional = true }
-line-straddler = "0.1.0"
 piet = { version = "0.6.2", default-features = false }
-piet-cosmic-text = "0.2.0"
 piet-glow = { version = "0.1.0", optional = true }
-piet-wgpu = { version = "0.2.2", default-features = false, optional = true }
+piet-tiny-skia = "0.2.0"
+piet-wgpu = { version = "0.3.0", default-features = false, optional = true }
 raw-window-handle = "0.5.0"
-softbuffer = "0.2.0"
-tiny-skia = { version = "0.8.3", default-features = false, features = ["std"] }
-tiny-skia-path = "0.8.3"
-tinyvec = { version = "1.6.0", default-features = false, features = ["alloc"] }
+slab = { version = "0.4.8", default-features = false, optional = true }
+softbuffer = { version = "0.3.0", default-features = false }
+tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
 tracing = { version = "0.1.37", default-features = false }
-wgpu0 = { package = "wgpu", version = "0.16.0", default-features = false, optional = true }
+wgpu0 = { package = "wgpu", version = "0.17.0", default-features = false, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 glutin = { version = "0.30.6", default-features = false, optional = true, features = ["egl"] }
@@ -41,7 +39,7 @@ wayland = ["glutin?/wayland", "softbuffer/wayland"]
 egl = ["gl", "glutin/egl"]
 glx = ["gl", "glutin/glx"]
 wgl = ["gl", "glutin/wgl"]
-wgpu = ["piet-wgpu", "wgpu0"]
+wgpu = ["piet-wgpu", "wgpu0", "slab"]
 
 [build-dependencies]
 cfg_aliases = "0.1.1"
@@ -51,6 +49,7 @@ env_logger = { version = "0.10.0", default-features = false, features = ["color"
 futures-lite = "1.13.0"
 image = { version = "0.24.5", default-features = false, features = ["png"] }
 instant = "0.1.12"
+softbuffer = { version = "0.3.0", default-features = false, features = ["x11"] }
 tracing = { version = "0.1.37", features = ["log"] }
 winit = { version = "0.28.1", default-features = false, features = ["x11"] }
 

@@ -7,7 +7,6 @@
 // * GNU Lesser General Public License as published by the Free Software Foundation, either
 // version 3 of the License, or (at your option) any later version.
 // * Mozilla Public License as published by the Mozilla Foundation, version 2.
-
 //
 // `theo` is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
 // without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -23,12 +22,13 @@ use crate::{DisplayBuilder, Error, ResultExt, SwitchToSwrast};
 
 use piet::kurbo::{Point, Rect, Shape};
 use piet::{RenderContext as _, StrokeStyle};
-use piet_wgpu::{DeviceAndQueue, WgpuContext};
+use piet_wgpu::WgpuContext;
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
+use slab::Slab;
 
-use std::marker::PhantomData;
+use std::rc::{Rc, Weak};
 
 /// The display for the `wgpu` backend.
 pub(super) struct Display {
@@ -42,34 +42,57 @@ pub(super) struct Display {
     supports_transparency: bool,
 
     /// The list of known adapters.
-    adapters: Vec<wgpu::Adapter>,
+    adapters: Vec<AdapterInfo>,
+
+    /// The list of known surfaces.
+    surfaces: Slab<SurfaceInfo>,
 }
 
 /// The surface for the `wgpu` backend.
 pub(super) struct Surface {
-    /// The surface.
+    /// The index into `surfaces` in `Display`.
+    surface_index: usize,
+
+    /// Shared state indicating that this has been dropped.
+    _dropped: Rc<()>,
+}
+
+struct AdapterInfo {
+    adapter: wgpu::Adapter,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+}
+
+struct SurfaceInfo {
+    /// The underlying `wgpu` surface.
     surface: wgpu::Surface,
 
-    /// Surface configuration.
+    /// The surface configuration.
     config: wgpu::SurfaceConfiguration,
 
     /// The WGPU context.
-    context: WgpuContext<WgpuInnards>,
+    context: WgpuContext,
+
+    /// The index of the adapter that this surface is associated with.
+    adapter_index: usize,
+
+    /// The texture associated with the surface.
+    texture: Option<wgpu::SurfaceTexture>,
+
+    /// Whether or not the representative `Surface` has been dropped.
+    dropped: Weak<()>,
 }
 
 /// The rendering context.
 pub(super) struct RenderContext<'dsp, 'srf> {
     /// The inner context.
-    inner: piet_wgpu::RenderContext<'srf, WgpuInnards>,
+    inner: piet_wgpu::RenderContext<'dsp, 'dsp, 'dsp>,
 
-    /// The surface texture.
-    surface_texture: Option<wgpu::SurfaceTexture>,
+    /// The surface we're drawing to.
+    _surface: &'srf mut Surface,
 
     /// The text context.
     text: Text,
-
-    /// We don't use the display.
-    _display: PhantomData<&'dsp mut Display>,
 }
 
 impl Display {
@@ -92,6 +115,7 @@ impl Display {
             raw,
             supports_transparency: builder.transparent,
             adapters: vec![],
+            surfaces: Slab::new(),
         })
     }
 
@@ -116,10 +140,11 @@ impl Display {
             .piet_err()?;
 
         // See if we have an adaptor for this surface.
-        let adaptor = if let Some(adapter) = self
+        let (index, adapter) = if let Some(adapter) = self
             .adapters
             .iter()
-            .find(|a| a.is_surface_supported(&surface))
+            .enumerate()
+            .find(|(_, a)| a.adapter.is_surface_supported(&surface))
         {
             adapter
         } else {
@@ -133,26 +158,30 @@ impl Display {
                 .await
                 .ok_or_else(|| Error::NotSupported)?;
 
+            // Create the device and queue.
+            let (device, queue) = adapter
+                .request_device(
+                    &wgpu::DeviceDescriptor {
+                        label: Some("theo device and queue"),
+                        features: wgpu::Features::ADDRESS_MODE_CLAMP_TO_BORDER,
+                        limits: wgpu::Limits::default(),
+                    },
+                    None,
+                )
+                .await
+                .piet_err()?;
+
             // Add it to the list of known adapters.
-            self.adapters.push(adapter);
-            self.adapters.last().unwrap()
+            self.adapters.push(AdapterInfo {
+                adapter,
+                device,
+                queue,
+            });
+            (self.adapters.len() - 1, self.adapters.last().unwrap())
         };
 
-        // Create the device and queue.
-        let (device, queue) = adaptor
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("theo device and queue"),
-                    features: wgpu::Features::ADDRESS_MODE_CLAMP_TO_BORDER,
-                    limits: wgpu::Limits::default(),
-                },
-                None,
-            )
-            .await
-            .piet_err()?;
-
         // Get the surface capabilities.
-        let cap = surface.get_capabilities(adaptor);
+        let cap = surface.get_capabilities(&adapter.adapter);
 
         // Create the surface configuration.
         let format = cap
@@ -191,43 +220,114 @@ impl Display {
             view_formats: vec![*format],
         };
 
-        Ok(Surface {
+        // Create a signal to indicate that the surface has been dropped.
+        let signal = Rc::new(());
+
+        let info = SurfaceInfo {
             surface,
             config,
-            context: WgpuContext::new(WgpuInnards { device, queue }, *format, 1).piet_err()?,
+            context: WgpuContext::new(&adapter.device, &adapter.queue, *format, None, 1),
+            texture: None,
+            adapter_index: index,
+            dropped: Rc::downgrade(&signal),
+        };
+
+        // Put the surface in our list.
+        let surface_index = self.surfaces.insert(info);
+
+        Ok(Surface {
+            surface_index,
+            _dropped: signal,
         })
+    }
+
+    #[inline]
+    pub(crate) async fn present(&mut self) {
+        // TODO: Use an executor to .await on the queues finishing.
+
+        // Run submit operations for each adapter.
+        for (adapter_index, adapter) in self.adapters.iter().enumerate() {
+            let mut encoder =
+                adapter
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("theo command encoder"),
+                    });
+
+            // Encode every surface's operations that are attached to this adapter.
+            // TODO: Could this be more efficient?
+            for (i, surface) in &mut self.surfaces {
+                if surface.adapter_index == adapter_index {
+                    let surface_texture = surface
+                        .texture
+                        .get_or_insert_with(|| surface.surface.get_current_texture().unwrap());
+                    let view = surface_texture
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+
+                    // TODO: MSAA
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some(&format!("theo render pass for surface #{i}")),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: true,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                    });
+                    surface.context.render(&mut pass);
+                }
+            }
+
+            // Submit the queue.
+            adapter.queue.submit(Some(encoder.finish()));
+        }
+
+        // Swap the buffers on each surface.
+        self.surfaces.retain(|_, surface| {
+            let adapter = &self.adapters[surface.adapter_index];
+            surface.context.after_submit(&adapter.device);
+
+            if let Some(texture) = surface.texture.take() {
+                texture.present();
+            }
+
+            // If we need to garbage-collect this surface, do so now.
+            surface.dropped.upgrade().is_some()
+        });
     }
 }
 
 impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
     pub(super) unsafe fn new(
-        _display: &'dsp mut Display,
+        display: &'dsp mut Display,
         surface: &'surf mut Surface,
         width: u32,
         height: u32,
     ) -> Result<Self, Error> {
-        // Set the texture size.
-        surface.config.width = width;
-        surface.config.height = height;
-        surface
-            .surface
-            .configure(&surface.context.device_and_queue().device, &surface.config);
+        let real_surface = &mut display.surfaces[surface.surface_index];
+        let adapter = &display.adapters[real_surface.adapter_index];
 
-        // Create the surface texture.
-        let surface_texture = surface.surface.get_current_texture().piet_err()?;
+        // Set the texture size.
+        real_surface.config.width = width;
+        real_surface.config.height = height;
+        real_surface
+            .surface
+            .configure(&adapter.device, &real_surface.config);
 
         // Create the inner context.
-        let mut inner = surface.context.render_context(
-            surface_texture.texture.create_view(&Default::default()),
-            width,
-            height,
-        );
+        let mut inner =
+            real_surface
+                .context
+                .prepare(&adapter.device, &adapter.queue, width, height);
 
         Ok(Self {
             text: Text(TextInner::Wgpu(inner.text().clone())),
+            _surface: surface,
             inner,
-            surface_texture: Some(surface_texture),
-            _display: PhantomData,
         })
     }
 
@@ -304,12 +404,6 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
 
     pub(super) fn finish(&mut self) -> Result<(), Error> {
         self.inner.finish()?;
-
-        // Present the surface texture.
-        self.surface_texture
-            .take()
-            .ok_or(Error::InvalidInput)?
-            .present();
         Ok(())
     }
 
@@ -360,8 +454,8 @@ impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
     }
 }
 
-type Brush = piet_wgpu::Brush<WgpuInnards>;
-type Image = piet_wgpu::Image<WgpuInnards>;
+type Brush = piet_wgpu::Brush;
+type Image = piet_wgpu::Image;
 
 /// Combines a raw display handle and a raw window handle.
 struct RawHandles(RawDisplayHandle, RawWindowHandle);
@@ -375,23 +469,5 @@ unsafe impl HasRawDisplayHandle for RawHandles {
 unsafe impl HasRawWindowHandle for RawHandles {
     fn raw_window_handle(&self) -> RawWindowHandle {
         self.1
-    }
-}
-
-pub(crate) struct WgpuInnards {
-    /// The device.
-    device: wgpu::Device,
-
-    /// The queue.
-    queue: wgpu::Queue,
-}
-
-impl DeviceAndQueue for WgpuInnards {
-    fn device(&self) -> &wgpu::Device {
-        &self.device
-    }
-
-    fn queue(&self) -> &wgpu::Queue {
-        &self.queue
     }
 }

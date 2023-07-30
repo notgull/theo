@@ -7,7 +7,6 @@
 // * GNU Lesser General Public License as published by the Free Software Foundation, either
 // version 3 of the License, or (at your option) any later version.
 // * Mozilla Public License as published by the Mozilla Foundation, version 2.
-
 //
 // `theo` is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
 // without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -16,7 +15,7 @@
 // You should have received a copy of the GNU Lesser General Public License and the Mozilla
 // Public License along with `theo`. If not, see <https://www.gnu.org/licenses/>.
 
-use piet_cosmic_text::{
+use piet_tiny_skia::{
     Text as CosmicText, TextLayout as CosmicTextLayout,
     TextLayoutBuilder as CosmicTextLayoutBuilder,
 };
@@ -34,16 +33,6 @@ use piet_wgpu::{
 /// The text backend for the system.
 #[derive(Clone)]
 pub struct Text(pub(crate) TextInner);
-
-impl Text {
-    #[allow(unreachable_patterns)]
-    pub(crate) fn as_inner(&self) -> &piet_cosmic_text::Text {
-        match &self.0 {
-            TextInner::Cosmic(inner) => inner,
-            _ => panic!(),
-        }
-    }
-}
 
 #[derive(Clone)]
 pub(crate) enum TextInner {

@@ -59,7 +59,7 @@ fn main() -> ! {
         let mut display = Display::builder();
 
         // Uncomment this to force software rendering.
-        display = display.force_swrast(true);
+        //display = display.force_swrast(true);
 
         display = display.transparent(false);
 
@@ -379,6 +379,10 @@ fn main() -> ! {
 
                     // Call to the actual drawing function.
                     draw(&mut render_context).expect("Failed to draw");
+
+                    // As this is our only window, we can just swap buffers now.
+                    drop(render_context);
+                    futures_lite::future::block_on(display.present());
                 }
 
                 next_frame += framerate;

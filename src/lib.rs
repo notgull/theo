@@ -7,7 +7,6 @@
 // * GNU Lesser General Public License as published by the Free Software Foundation, either
 // version 3 of the License, or (at your option) any later version.
 // * Mozilla Public License as published by the Mozilla Foundation, version 2.
-
 //
 // `theo` is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
 // without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -1033,6 +1032,18 @@ macro_rules! make_dispatch {
                     )*
                 }
             }
+
+            /// Push the queue and present to all known surfaces.
+            ///
+            /// This is necessary to call after all windows have been drawn to.
+            pub async fn present(&mut self) {
+                match &mut *self.dispatch {
+                    $(
+                        $(#[$meta])*
+                        DisplayDispatch::$name(ctx) => ctx.present().await,
+                    )*
+                }
+            }
         }
 
         impl<'dsp, 'surf> RenderContext<'dsp, 'surf> {
@@ -1409,8 +1420,8 @@ make_dispatch! {
         wgpu_backend::Display,
         wgpu_backend::Surface,
         wgpu_backend::RenderContext<'dsp, 'surf>,
-        piet_wgpu::Brush<wgpu_backend::WgpuInnards>,
-        piet_wgpu::Image<wgpu_backend::WgpuInnards>
+        piet_wgpu::Brush,
+        piet_wgpu::Image
     ),
 
     #[cfg(all(feature = "gl", not(target_arch = "wasm32")))]
