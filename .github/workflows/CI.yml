@@ -51,8 +51,8 @@ jobs:
         run: rustup update ${{ matrix.rust }}
       - run: cargo test
       - run: cargo build --all --all-features --all-targets
-      - run: cargo build --no-default-features --features gl,egl,glx,wgl
-      - run: cargo build --no-default-features
+      - run: cargo build --no-default-features --features x11,gl,egl,glx,wgl
+      - run: cargo build --no-default-features --features x11
 
   clippy:
     runs-on: ubuntu-latest
