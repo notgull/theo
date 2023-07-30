@@ -1,2 +1,1 @@
 - [ ] Tested on all platforms affected by this change
-- [ ] Signed the [Contribution License Agreement (CLA)](https://cla-assistant.io/notgull/theo)
