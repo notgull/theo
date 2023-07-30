@@ -88,7 +88,7 @@
 //! let mut surface = surface_future.await.expect("failed to create surface");
 //!
 //! // Set up drawing logic.
-//! window.on_draw(|| {
+//! window.on_draw(move || async move {
 //!     // Create the render context.
 //!     let mut ctx = RenderContext::new(
 //!         &mut display,
@@ -106,6 +106,9 @@
 //!
 //!     // Finish drawing.
 //!     ctx.finish().expect("failed to finish drawing");
+//!
+//!     // Present the display.
+//!     display.present().await.expect("failed to present display");
 //! });
 //! # });
 //! ```
@@ -1035,7 +1038,13 @@ macro_rules! make_dispatch {
 
             /// Push the queue and present to all known surfaces.
             ///
-            /// This is necessary to call after all windows have been drawn to.
+            /// This is necessary to call after all windows have been drawn to. It should be called
+            /// once all windows that need to be drawn to have already been drawn to.
+            ///
+            /// # Asynchronous
+            ///
+            /// For most backends, this is a no-op. For [`wgpu`], it submits the queue and then
+            /// waits for all of the queues to finish submitting.
             pub async fn present(&mut self) {
                 match &mut *self.dispatch {
                     $(
