@@ -1,0 +1,17 @@
+image: alpine/edge
+packages:
+- clang
+- curl
+sources:
+- https://git.sr.ht/~notgull/theo
+secrets:
+- 424251f4-3b9e-4f8b-8361-e000fe6222f3
+tasks:
+- test: |
+    cd theo
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+    sh ci/ci.sh 
+- mirror: |
+    cd theo
+    git remote add github_origin git@github.com:notgull/theo.git
+    git push github_origin main
