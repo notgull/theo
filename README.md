@@ -2,6 +2,8 @@
 
 A generic [`piet`] rendering context for all windowing and graphics backends.
 
+This project is hosted on [`SourceHut`](https://git.sr.ht/~notgull/theo). The GitHub mirror is kept for convenience.
+
 Windowing frameworks like [`winit`] do not provide a way to draw into them by default. This decision is intentional; it allows the user to choose which graphics backend that they'd like to use, and also makes maintaining the windowing code much simpler. For games (what [`winit`] was originally designed for), usually a 3D rendering context like [`wgpu`] or [`glow`] would be used in this case. However, GUI applications will need a 2D vector graphics context.
 
 [`piet`] is a 2D graphics abstraction that can be used with many different graphics backends. However, [`piet`]'s default implementation, [`piet-common`], is difficult to integrate with windowing systems other than [`druid-shell`], which doesn't support many operations that other windowing systems support. [`theo`] aims to bridge this gap by providing a generic [`piet`] rendering context that easily integrates with windowing systems.

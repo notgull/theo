@@ -51,7 +51,8 @@ theo_tidy() {
 }
 
 if ! command -v rustup; then
-  rustup-init -y || true
+  rustup-init -y
+  . "$HOME/.cargo/env"
 fi
 
 theo_tidy
