@@ -51,7 +51,7 @@ theo_tidy() {
 }
 
 if ! command -v rustup; then
-  rustup-init -y
+  rustup-init -y || true
 fi
 
 theo_tidy

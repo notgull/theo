@@ -2,6 +2,7 @@ image: alpine/edge
 packages:
 - clang
 - curl
+- rustup
 sources:
 - https://git.sr.ht/~notgull/theo
 secrets:
@@ -9,7 +10,6 @@ secrets:
 tasks:
 - test: |
     cd theo
-    curl https://sh.rustup.rs -sSf | sh -s -- -y
     sh ci/ci.sh 
 - mirror: |
     cd theo
