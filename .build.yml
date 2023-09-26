@@ -2,6 +2,12 @@ image: alpine/edge
 packages:
 - clang
 - curl
+- libx11
+- libx11-dev
+- libxcb
+- lixcb-dev
+- libxkbcommon
+- libxkbcommon-dev
 - rustup
 sources:
 - https://git.sr.ht/~notgull/theo
