@@ -18,5 +18,6 @@ tasks:
     sh ci/ci.sh 
 - mirror: |
     cd theo
+    ssh-keyscan -H -t rsa github.com  >> ~/.ssh/known_hosts
     git remote add github_origin git@github.com:notgull/theo.git
     git push github_origin main
