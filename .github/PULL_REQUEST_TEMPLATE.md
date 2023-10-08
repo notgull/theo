@@ -1,2 +1,0 @@
-- [ ] Tested on all platforms affected by this change
-- [ ] Added `Signed-off-by:` to all commits to indicate that you have the rights to this change.

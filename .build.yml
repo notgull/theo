@@ -2,18 +2,16 @@ image: debian/testing
 packages:
 - clang
 - curl
-- libx11
 - libx11-dev
-- libxcb
-- libxcb-dev
-- libxkbcommon
+- libxcb1-dev
 - libxkbcommon-dev
-- rustup
 sources:
 - https://git.sr.ht/~notgull/theo
 secrets:
 - 424251f4-3b9e-4f8b-8361-e000fe6222f3
 tasks:
+- install_rust:
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
 - test: |
     cd theo
     sh ci/ci.sh 
