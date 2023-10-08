@@ -18,7 +18,7 @@ theo_check_target() {
   target="$1"
   cmd="$2"
 
-  echo ">> Check for $target"
+  echo ">> Check for $target using $cmd"
   rustup target add "$target"
   rx cargo "$cmd" --target "$target" --no-default-features
   rx cargo "$cmd" --target "$target" --no-default-features \
