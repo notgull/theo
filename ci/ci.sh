@@ -15,13 +15,15 @@ rx() {
 }
 
 theo_check_target() {
-  version="$1"
-  target="$2"
-  cmd="$3"
+  target="$1"
+  cmd="$2"
 
   echo ">> Check for $target"
+  rustup add target "$target"
   rx cargo "$cmd" --target "$target" --no-default-features
-  rx cargo "$cmd" --target "$target" --no-default-features
+  rx cargo "$cmd" --target "$target" --no-default-features \
+      --features gl,wgl,egl
+  cargo clean
 }
 
 theo_test_version() {
@@ -36,20 +38,15 @@ theo_test_version() {
   rx cargo build --all --all-features --all-targets
   rx cargo build --no-default-features --features x11,gl,egl,glx,wgl
   rx cargo build --no-default-features --features x11
+  cargo clean
 
   if ! $extended_tests; then
     return
   fi
   
-  echo ">> Build for wasm32-unknown-unknown..."
-  rustup target add wasm32-unknown-unknown
-  rx cargo build --target wasm32-unknown-unknown --no-default-features
-  rx cargo build --target wasm32-unknown-unknown --no-default-features --features gl
-
-  echo ">> Build for x86_64-pc-windows-gnu"
-  rustup target add x86_64-pc-windows-gnu
-  rx cargo build --target x86_64-pc-windows-gnu
-  rx cargo build --target x86_64-pc-windows-gnu --no-default-features --features gl,wgl,egl
+  theo_check_target wasm32-unknown-unknown build
+  theo_check_target x86_64-pc-windows-gnu build
+  theo_check_target x86_64-apple-darwin check
 }
 
 theo_tidy() {

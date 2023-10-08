@@ -3,6 +3,7 @@ packages:
 - clang
 - curl
 - libx11-dev
+- libx11-xcb-dev
 - libxcb1-dev
 - libxkbcommon-dev
 sources:
