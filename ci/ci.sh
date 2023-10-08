@@ -14,6 +14,16 @@ rx() {
   )
 }
 
+theo_check_target() {
+  version="$1"
+  target="$2"
+  cmd="$3"
+
+  echo ">> Check for $target"
+  rx cargo "$cmd" --target "$target" --no-default-features
+  rx cargo "$cmd" --target "$target" --no-default-features
+}
+
 theo_test_version() {
   version="$1"
   extended_tests="$2"
