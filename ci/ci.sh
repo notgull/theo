@@ -60,10 +60,7 @@ theo_tidy() {
   rx cargo clippy --all-features --all-targets
 }
 
-if ! command -v rustup; then
-  rustup-init -y
-  . "$HOME/.cargo/env"
-fi
+. "$HOME/.cargo/env"
 
 theo_tidy
 theo_test_version stable true
