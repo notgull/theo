@@ -16,12 +16,12 @@ rx() {
 
 theo_check_target() {
   target="$1"
-  cmd="$2"
+  command="$2"
 
-  echo ">> Check for $target using $cmd"
+  echo ">> Check for $target using $command"
   rustup target add "$target"
-  rx cargo "$cmd" --target "$target" --no-default-features
-  rx cargo "$cmd" --target "$target" --no-default-features \
+  rx cargo "$command" --target "$target" --no-default-features
+  rx cargo "$command" --target "$target" --no-default-features \
       --features gl,wgl,egl
   cargo clean
 }
