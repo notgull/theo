@@ -19,7 +19,7 @@ theo_check_target() {
   cmd="$2"
 
   echo ">> Check for $target"
-  rustup add target "$target"
+  rustup target add "$target"
   rx cargo "$cmd" --target "$target" --no-default-features
   rx cargo "$cmd" --target "$target" --no-default-features \
       --features gl,wgl,egl
