@@ -5,7 +5,7 @@ packages:
 - libx11
 - libx11-dev
 - libxcb
-- lixcb-dev
+- libxcb-dev
 - libxkbcommon
 - libxkbcommon-dev
 - rustup
