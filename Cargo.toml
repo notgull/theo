@@ -6,8 +6,8 @@ license = "LGPL-3.0-or-later OR MPL-2.0"
 authors = ["John Nunley <jtnunley01@gmail.com>"]
 description = "A standalone renderer for windowing graphics"
 documentation = "https://docs.rs/theo"
-homepage = "https://github.com/notgull/theo"
-repository = "https://github.com/notgull/theo"
+homepage = "https://git.sr.ht/~notgull/theo"
+repository = "https://git.sr.ht/~notgull/theo"
 
 [dependencies]
 bytemuck = { version = "1.13.1", default-features = false }
