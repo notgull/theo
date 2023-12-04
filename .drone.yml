@@ -1,0 +1,124 @@
+kind: pipeline
+type: docker
+name: tidy
+
+steps:
+  - name: tidy
+    image: notgull/ci:latest
+    pull: true
+    commands:
+      - tidy.sh
+---
+kind: pipeline
+type: docker
+name: test-stable
+
+depends_on:
+  - tidy
+
+steps:
+  - name: test
+    image: notgull/ci:latest
+    pull: always
+    commands:
+      - ensure_tool.sh wayland x11
+      - test_rust.sh stable
+---
+kind: pipeline
+type: docker
+name: test-beta
+
+depends_on:
+  - tidy
+
+steps:
+  - name: test
+    image: notgull/ci:latest
+    pull: always
+    commands:
+      - ensure_tool.sh wayland x11
+      - test_rust.sh beta
+---
+kind: pipeline
+type: docker
+name: test-nightly
+
+depends_on:
+  - tidy
+
+steps:
+  - name: test
+    image: notgull/ci:latest
+    pull: always
+    commands:
+      - ensure_tool.sh wayland x11
+      - test_rust.sh nightly
+---
+kind: pipeline
+type: docker
+name: test-msrv
+
+depends_on:
+  - tidy
+
+steps:
+  - name: test
+    image: notgull/ci:latest
+    pull: always
+    commands:
+      - ensure_tool.sh wayland x11
+      - test_rust.sh 1.65.0
+---
+kind: pipeline
+type: docker
+name: release
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+
+depends_on:
+  - test-stable
+  - test-beta
+  - test-nightly
+  - test-msrv
+
+steps:
+  - name: gitea_release
+    image: notgull/ci:stable
+    environment:
+      SSH_KEY:
+        from_secret: tea_ssh_key
+      TEA_CONFIG:
+        from_secret: tea_config_yml
+    commands:
+      - mkdir -pv ~/.ssh && mkdir -pv ~/.config/tea
+      - echo "$SSH_KEY" > ~/.ssh/id_rsa && chmod 0600 ~/.ssh/id_rsa
+      - echo "$TEA_CONFIG" > ~/.config/tea/config.yml
+      - release.sh
+---
+kind: pipeline
+type: docker
+name: github
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+
+steps:
+  - name: mirror to GitHub
+    image: alpine:edge
+    environment:
+      SSH_KEY:
+        from_secret: gh_ssh_key
+    commands:
+      - apk add git openssh
+      - mkdir -pv ~/.ssh
+      - ssh-keyscan -H -t rsa github.com >> ~/.ssh/known_hosts
+      - echo "$SSH_KEY" > ~/.ssh/id_rsa && chmod 0600 ~/.ssh/id_rsa
+      - git remote add github_origin git@github.com:notgull/theo.git
+      - git push github_origin main
