@@ -23,6 +23,8 @@ steps:
     commands:
       - ensure_tool.sh wayland x11
       - test_rust.sh stable --skip-macos --skip-ndf x11,gl,glx x11,gl,egl wayland,egl x11,wgpu
+    environment:
+      RUSTFLAGS: --cfg=web_sys_unstable_apis -D warnings
 ---
 kind: pipeline
 type: docker
@@ -38,6 +40,8 @@ steps:
     commands:
       - ensure_tool.sh wayland x11
       - test_rust.sh beta --skip-macos --skip-ndf x11,gl,glx x11,gl,egl wayland,egl x11,wgpu
+    environment:
+      RUSTFLAGS: --cfg=web_sys_unstable_apis -D warnings
 ---
 kind: pipeline
 type: docker
@@ -53,6 +57,8 @@ steps:
     commands:
       - ensure_tool.sh wayland x11
       - test_rust.sh nightly --skip-macos --skip-ndf x11,gl,glx x11,gl,egl wayland,egl x11,wgpu
+    environment:
+      RUSTFLAGS: --cfg=web_sys_unstable_apis -D warnings
 ---
 kind: pipeline
 type: docker
@@ -68,6 +74,8 @@ steps:
     commands:
       - ensure_tool.sh wayland x11
       - test_rust.sh 1.65.0 --skip-macos --skip-ndf x11,gl,glx x11,gl,egl wayland,egl x11,wgpu
+    environment:
+      RUSTFLAGS: --cfg=web_sys_unstable_apis -D warnings
 ---
 kind: pipeline
 type: docker
