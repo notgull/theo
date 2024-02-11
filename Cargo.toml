@@ -1,6 +1,6 @@
 [package]
 name = "theo"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "LGPL-3.0-or-later OR MPL-2.0"
 rust-version = "1.72.0"
