@@ -1,0 +1,29 @@
+when:
+  branch: main
+  
+steps:
+  fmt:
+    image: rust
+    commands:
+      - rustup default stable
+      - rustup component add rustfmt
+      - cargo fmt --all --check
+  
+  lint:
+    environment:
+      CARGO_INCREMENTAL: "0"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_NET_RETRY: "10"
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+      RUSTFLAGS: "-D warnings"
+      RUSTDOCFLAGS: "-D warnings"
+      RUSTUP_MAX_RETRIES: "10"
+      PACKAGES: libx11-dev libxcb1-dev libxkbcommon-dev libx11-xcb-dev libwayland-dev pkg-config
+    image: rust
+    commands:
+      - apt-get -o Acquire::Retries=10 -qq update
+      - apt-get -o Acquire::Retries=10 -o Dpkg::Use-Pty=0 install -y --no-install-recommends $PACKAGES 
+      - rustup default stable
+      - rustup component add clippy
+      - cargo clippy --all-features --all-targets

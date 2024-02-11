@@ -1,0 +1,22 @@
+when:
+- event: push
+  branch: main
+
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      partial: false
+
+steps:
+  github_mirror:
+    image: alpine:latest
+    secrets: [ github_ssh_key ]
+    commands:
+      - apk --no-cache update -q
+      - apk --no-cache add git openssh
+      - mkdir -pv $HOME/.ssh
+      - ssh-keyscan -H -t rsa github.com >> ~/.ssh/known_hosts
+      - echo "$GITHUB_SSH_KEY" > "$HOME/.ssh/id_rsa" && chmod 0600 $HOME/.ssh/id_rsa
+      - git remote add github_origin git@github.com:notgull/theo.git
+      - git push github_origin main 

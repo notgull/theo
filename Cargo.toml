@@ -3,11 +3,12 @@ name = "theo"
 version = "0.1.0"
 edition = "2021"
 license = "LGPL-3.0-or-later OR MPL-2.0"
+rust-version = "1.72.0"
 authors = ["John Nunley <dev@notgull.net>"]
 description = "A standalone renderer for windowing graphics"
 documentation = "https://docs.rs/theo"
-homepage = "https://src.notgull.net/notgull/theo"
-repository = "https://src.notgull.net/notgull/theo"
+homepage = "https://codeberg.org/notgull/theo"
+repository = "https://codeberg.org/notgull/theo"
 
 [dependencies]
 bytemuck = { version = "1.13.1", default-features = false }

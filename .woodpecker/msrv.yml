@@ -1,0 +1,23 @@
+when:
+  branch: main
+
+matrix:
+  RUST_VERSION:
+   - "1.72.0"
+
+steps:
+  msrv:
+    image: rust
+    commands:
+     - rustup default ${RUST_VERSION}
+     - cargo build
+     - cargo build --no-default-features 
+    environment:
+      CARGO_INCREMENTAL: "0"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_NET_RETRY: "10"
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+      RUSTFLAGS: "-D warnings"
+      RUSTDOCFLAGS: "-D warnings"
+      RUSTUP_MAX_RETRIES: "10" 

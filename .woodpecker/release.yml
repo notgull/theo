@@ -1,0 +1,25 @@
+when:
+  - event: tag
+    ref: refs/tags/v*
+
+steps:
+  create_release:
+    image: alpine:latest
+    secrets: [ codeberg_config, codeberg_ssh_key ]
+    commands:
+      - apk --no-cache update -q 
+      - apk --no-cache add curl git tea
+      - curl --proto '=https' --tlsv1.2 -fsSL --retry 10 "$PARSE_CHANGELOG" | tar -xvzf - -C /usr/bin/
+      - chmod +x /usr/bin/parse-changelog
+      - mkdir -p /tmp/.ssh && echo "$CODEBERG_SSH_KEY" > /tmp/.ssh/id_rsa
+      - mkdir -p $HOME/.config/tea && echo "$CODEBERG_CONFIG" > $HOME/.config/tea/config.yml
+      - tea release create --tag "$(git describe --tags)" --title "$(git describe --tags)" -n "$(/usr/bin/parse-changelog CHANGELOG.md)"
+    environment:
+      PARSE_CHANGELOG: https://github.com/taiki-e/parse-changelog/releases/download/v0.6.4/parse-changelog-x86_64-unknown-linux-musl.tar.gz
+
+  crates_io_release:
+    image: rust:latest
+    secrets: [ crates_io_api_token ]
+    commands:
+      - cargo login $CRATES_IO_API_TOKEN
+      - cargo publish

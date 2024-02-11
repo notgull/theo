@@ -31,10 +31,10 @@ fall back to software rendering.
 
 ## Source Code
 
-The canonical code for this repository is kept on our [Git Forge]. For
+The canonical code for this repository is kept on our [Codeberg]. For
 convenience, a mirror is kept on [GitHub].
 
-[Git Forge]: https://src.notgull.net/notgull/theo
+[Codeberg]: https://codeberg.org/notgull/theo
 [GitHub]: https://github.com/notgull/theo
 
 ## Usage Example

@@ -1,0 +1,29 @@
+when:
+  branch: main
+
+matrix:
+  RUST_VERSION:
+    - stable
+    - beta
+    - nightly
+
+steps:
+  test:
+    image: rust
+    commands:
+      - apt-get -o Acquire::Retries=10 -qq update
+      - apt-get -o Acquire::Retries=10 -o Dpkg::Use-Pty=0 install -y --no-install-recommends $PACKAGES 
+      - rustup default ${RUST_VERSION}
+      - cargo build --all --all-features --all-targets
+      - if [ ${RUST_VERSION} = "nightly" ]; then cargo check -Z features=dev_dep; fi
+      - cargo test
+    environment:
+      CARGO_INCREMENTAL: "0"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_NET_RETRY: "10"
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+      RUSTFLAGS: "-D warnings"
+      RUSTDOCFLAGS: "-D warnings"
+      RUSTUP_MAX_RETRIES: "10"
+      PACKAGES: libx11-dev libxcb1-dev libxkbcommon-dev libx11-xcb-dev libwayland-dev pkg-config
